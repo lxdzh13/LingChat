@@ -1,0 +1,277 @@
+[
+  {
+    "id": "344c1ac2-42be-459f-bdca-30e07bdc9a31",
+    "name": "风雪的占卜摊",
+    "description": "这里是风雪的占卜摊，里面有风雪的水晶球，天文望远镜以及具有魔法气息的药水瓶。外面有很多可爱的星星。",
+    "background": "占卜摊2.webp",
+    "lighting": null,
+    "created_at": "2026-05-26T14:29:14.661394800+00:00",
+    "updated_at": "2026-05-26T14:29:14.661394800+00:00"
+  },
+  {
+    "id": "22cddffe-479f-4b0a-b1e6-3df2e0bec0ff",
+    "name": "山与水",
+    "description": "一片很大的池塘，天上有几个云朵，湖面很清澈，可以在水面上看到夕阳的倒影，在池塘边",
+    "background": "D:\\NoiProjects\\GitHub\\LingChat_Re\\LingChat\\data\\game_data\\backgrounds\\VRChat_2026-05-09_04-55-34.037_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-05-26T16:23:56.950301100+00:00",
+    "updated_at": "2026-05-26T16:25:30.847856400+00:00"
+  },
+  {
+    "id": "3647fb88-d0bd-464b-8f62-095422123d4a",
+    "name": "观星池",
+    "description": "一片小树林，天空闪过几道流星，碧蓝的天空染上了几分夕阳红，这里地上有着梦幻，蓝色的花朵，还有一个可以观星的望远镜在小坡上",
+    "background": "D:\\NoiProjects\\GitHub\\LingChat_Re\\LingChat\\data\\game_data\\backgrounds\\VRChat_2026-05-26_04-02-24.816_1920x1080.png",
+    "lighting": {
+      "character": {
+        "brightness": 0.95,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "sepia": 0.0,
+        "glow_radius": 6,
+        "glow_color": "#90b9cb"
+      },
+      "background": {
+        "brightness": 0.3,
+        "contrast": 0.98,
+        "saturation": 1.4,
+        "sepia": 0.0,
+        "glow_radius": 0,
+        "glow_color": "#ffaa33"
+      },
+      "overlay_enabled": true,
+      "blend_mode": "normal",
+      "light_x": 4,
+      "light_y": 6,
+      "overlay_color1": "#72dad3",
+      "overlay_color2": "#ae5b5b",
+      "overlay_radius": 76,
+      "overlay_opacity": 0.23,
+      "overlay_target": "both"
+    },
+    "created_at": "2026-05-26T16:23:56.950346700+00:00",
+    "updated_at": "2026-06-01T13:46:14.153694800+00:00"
+  },
+  {
+    "id": "591bc26a-df6b-45d3-9411-bc94a5d9ab4a",
+    "name": "钦灵的房间",
+    "description": "钦灵的卧室，总是有一台发着光的电脑，房间有点乱，窗帘透着夜光",
+    "background": "D:\\NoiProjects\\GitHub\\LingChat_Re\\LingChat\\data\\game_data\\backgrounds\\夜晚.webp",
+    "lighting": {
+      "character": {
+        "brightness": 1.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "sepia": 0.0,
+        "glow_radius": 0,
+        "glow_color": "#ffaa33"
+      },
+      "background": {
+        "brightness": 1.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "sepia": 0.0,
+        "glow_radius": 0,
+        "glow_color": "#ffaa33"
+      },
+      "overlay_enabled": false,
+      "blend_mode": "normal",
+      "light_x": 50,
+      "light_y": 50,
+      "overlay_color1": "#ffb44b",
+      "overlay_color2": "#18202e",
+      "overlay_radius": 80,
+      "overlay_opacity": 0.5,
+      "overlay_target": "both"
+    },
+    "created_at": "2026-05-26T16:23:56.950391200+00:00",
+    "updated_at": "2026-06-19T01:47:31.115584500+00:00"
+  },
+  {
+    "id": "f55710a3-d5a9-497c-9ccb-fbbf0bfa554d",
+    "name": "某个客厅",
+    "description": "这是某个客厅，书架上有不少的书，还有一个电视",
+    "background": "D:\\NoiProjects\\GitHub\\LingChat_Re\\LingChat\\data\\game_data\\backgrounds\\白天.webp",
+    "lighting": {
+      "character": {
+        "brightness": 1.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "sepia": 0.0,
+        "glow_radius": 0,
+        "glow_color": "#ffaa33"
+      },
+      "background": {
+        "brightness": 1.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "sepia": 0.0,
+        "glow_radius": 0,
+        "glow_color": "#ffaa33"
+      },
+      "overlay_enabled": false,
+      "blend_mode": "normal",
+      "light_x": 50,
+      "light_y": 50,
+      "overlay_color1": "#ffb44b",
+      "overlay_color2": "#18202e",
+      "overlay_radius": 80,
+      "overlay_opacity": 0.5,
+      "overlay_target": "both"
+    },
+    "created_at": "2026-05-26T16:23:56.950411+00:00",
+    "updated_at": "2026-06-19T01:49:30.214110600+00:00"
+  },
+  {
+    "id": "035b74f3-dd1f-481d-87e5-c54a86d146c9",
+    "name": "VRChat_2026-05-09_05-11-18.255_1920x1080",
+    "description": "",
+    "background": "D:\\NoiProjects\\GitHub\\LingChat_Re\\LingChat\\data\\game_data\\backgrounds\\VRChat_2026-05-09_05-11-18.255_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-05-27T06:10:03.731265200+00:00",
+    "updated_at": "2026-05-27T06:10:03.731265200+00:00"
+  },
+  {
+    "id": "3e201fd7-8162-467e-a005-79804e35d196",
+    "name": "VRChat_2026-05-26_04-06-49.115_1920x1080",
+    "description": "",
+    "background": "D:\\NoiProjects\\GitHub\\LingChat_Re\\LingChat\\data\\game_data\\backgrounds\\VRChat_2026-05-26_04-06-49.115_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-05-27T06:10:03.731318200+00:00",
+    "updated_at": "2026-05-27T06:10:03.731318200+00:00"
+  },
+  {
+    "id": "f8ee5846-0b21-4766-b94d-fc408ea5c530",
+    "name": "VRChat_2026-05-09_04-55-34.037_1920x1080",
+    "description": "",
+    "background": "C:\\Users\\NoiQ\\Desktop\\LingChat v4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-09_04-55-34.037_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-03T13:41:04.685724300+00:00",
+    "updated_at": "2026-06-03T13:41:04.685724300+00:00"
+  },
+  {
+    "id": "1a5611ea-61e3-457b-be0a-b91f218e4239",
+    "name": "VRChat_2026-05-09_05-11-18.255_1920x1080",
+    "description": "",
+    "background": "C:\\Users\\NoiQ\\Desktop\\LingChat v4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-09_05-11-18.255_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-03T13:41:04.685769+00:00",
+    "updated_at": "2026-06-03T13:41:04.685769+00:00"
+  },
+  {
+    "id": "4c665b4b-49ba-4e1b-a4be-17e5f419e4bb",
+    "name": "VRChat_2026-05-26_04-02-24.816_1920x1080",
+    "description": "",
+    "background": "C:\\Users\\NoiQ\\Desktop\\LingChat v4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-26_04-02-24.816_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-03T13:41:04.685794500+00:00",
+    "updated_at": "2026-06-03T13:41:04.685794500+00:00"
+  },
+  {
+    "id": "19537dce-a832-489e-a0d1-5f747d9b321e",
+    "name": "VRChat_2026-05-26_04-06-49.115_1920x1080",
+    "description": "",
+    "background": "C:\\Users\\NoiQ\\Desktop\\LingChat v4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-26_04-06-49.115_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-03T13:41:04.685819100+00:00",
+    "updated_at": "2026-06-03T13:41:04.685819100+00:00"
+  },
+  {
+    "id": "37707468-f1cb-484c-8743-d8429b4b032b",
+    "name": "夜晚",
+    "description": "",
+    "background": "C:\\Users\\NoiQ\\Desktop\\LingChat v4.5\\data\\game_data\\backgrounds\\夜晚.webp",
+    "lighting": null,
+    "created_at": "2026-06-03T13:41:04.685874600+00:00",
+    "updated_at": "2026-06-03T13:41:04.685874600+00:00"
+  },
+  {
+    "id": "5fafadeb-e186-4677-8fcf-e244172a2de5",
+    "name": "白天",
+    "description": "",
+    "background": "C:\\Users\\NoiQ\\Desktop\\LingChat v4.5\\data\\game_data\\backgrounds\\白天.webp",
+    "lighting": null,
+    "created_at": "2026-06-03T13:41:04.685900800+00:00",
+    "updated_at": "2026-06-03T13:41:04.685900800+00:00"
+  },
+  {
+    "id": "899949a8-8d40-4b14-8e3b-a1f37a782ca2",
+    "name": "VRChat_2026-05-09_04-55-34.037_1920x1080",
+    "description": "",
+    "background": "C:\\新建文件夹\\LingChat.v0.4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-09_04-55-34.037_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-05T08:31:40.232037500+00:00",
+    "updated_at": "2026-06-05T08:31:40.232037500+00:00"
+  },
+  {
+    "id": "9cc55770-c6a6-4207-88a6-13b8de831d69",
+    "name": "VRChat_2026-05-09_05-11-18.255_1920x1080",
+    "description": "",
+    "background": "C:\\新建文件夹\\LingChat.v0.4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-09_05-11-18.255_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-05T08:31:40.232099900+00:00",
+    "updated_at": "2026-06-05T08:31:40.232099900+00:00"
+  },
+  {
+    "id": "37d3d60e-03c8-4243-b84b-b7d3b7a194c6",
+    "name": "VRChat_2026-05-26_04-02-24.816_1920x1080",
+    "description": "",
+    "background": "C:\\新建文件夹\\LingChat.v0.4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-26_04-02-24.816_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-05T08:31:40.232144400+00:00",
+    "updated_at": "2026-06-05T08:31:40.232144400+00:00"
+  },
+  {
+    "id": "a507f8d5-d158-457d-bb6d-2bb458aa62f2",
+    "name": "VRChat_2026-05-26_04-06-49.115_1920x1080",
+    "description": "",
+    "background": "C:\\新建文件夹\\LingChat.v0.4.5\\data\\game_data\\backgrounds\\VRChat_2026-05-26_04-06-49.115_1920x1080.png",
+    "lighting": null,
+    "created_at": "2026-06-05T08:31:40.232188300+00:00",
+    "updated_at": "2026-06-05T08:31:40.232188300+00:00"
+  },
+  {
+    "id": "a69a81d5-f848-45cd-813b-2a438be9817c",
+    "name": "夜晚",
+    "description": "",
+    "background": "C:\\新建文件夹\\LingChat.v0.4.5\\data\\game_data\\backgrounds\\夜晚.webp",
+    "lighting": null,
+    "created_at": "2026-06-05T08:31:40.232277300+00:00",
+    "updated_at": "2026-06-05T08:31:40.232277300+00:00"
+  },
+  {
+    "id": "be033011-2200-498d-8a2e-192febc13480",
+    "name": "白天",
+    "description": "这是某个客厅，书架上有不少的书，还有一个电视",
+    "background": "C:\\新建文件夹\\LingChat.v0.4.5\\data\\game_data\\backgrounds\\白天.webp",
+    "lighting": {
+      "character": {
+        "brightness": 1.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "sepia": 0.0,
+        "glow_radius": 0,
+        "glow_color": "#ffaa33"
+      },
+      "background": {
+        "brightness": 1.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "sepia": 0.0,
+        "glow_radius": 0,
+        "glow_color": "#ffaa33"
+      },
+      "overlay_enabled": false,
+      "blend_mode": "normal",
+      "light_x": 50,
+      "light_y": 50,
+      "overlay_color1": "#ffb44b",
+      "overlay_color2": "#18202e",
+      "overlay_radius": 80,
+      "overlay_opacity": 0.5,
+      "overlay_target": "both"
+    },
+    "created_at": "2026-06-05T08:31:40.232318400+00:00",
+    "updated_at": "2026-06-19T01:49:53.639388200+00:00"
+  }
+]

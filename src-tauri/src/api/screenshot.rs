@@ -25,25 +25,34 @@ pub async fn start_screenshot(app: AppHandle) -> Result<(), String> {
     }
 
     // 创建全屏无边框覆盖窗口
-    let _overlay = WebviewWindowBuilder::new(
-        &app,
-        "screenshot-overlay",
-        WebviewUrl::App("screenshot-overlay.html".into()),
-    )
-    .title("截图选择")
-    .fullscreen(true)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .visible_on_all_workspaces(true)
-    .skip_taskbar(true)
-    .shadow(false)
-    .focused(true)
-    .build()
-    .map_err(|e| format!("创建截图覆盖窗口失败: {}", e))?;
+    #[cfg(target_os = "windows")]
+    {
+        let _overlay = WebviewWindowBuilder::new(
+            &app,
+            "screenshot-overlay",
+            WebviewUrl::App("screenshot-overlay.html".into()),
+        )
+        .title("截图选择")
+        .fullscreen(true)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .skip_taskbar(true)
+        .shadow(false)
+        .focused(true)
+        .build()
+        .map_err(|e| format!("创建截图覆盖窗口失败: {}", e))?;
 
-    tracing::info!("[Screenshot] Overlay window created, waiting for user selection.");
-    Ok(())
+        tracing::info!("[Screenshot] Overlay window created, waiting for user selection.");
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = WebviewUrl::App("screenshot-overlay.html".into());
+        Err("截屏功能仅在 Windows 上可用".to_string())
+    }
 }
 
 /// 覆盖窗口调用：获取之前存储的全屏截图 base64。

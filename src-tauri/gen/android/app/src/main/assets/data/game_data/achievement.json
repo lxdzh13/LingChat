@@ -1,0 +1,21 @@
+{
+  "first_chat": {
+    "unlocked": true,
+    "unlocked_at": "2026-05-21T18:58:06.612654200+00:00",
+    "current_progress": 1
+  },
+  "first_pomodoro": {
+    "unlocked": false,
+    "current_progress": 0
+  },
+  "chat_master": {
+    "unlocked": true,
+    "unlocked_at": "2026-06-03T12:44:07.889722800+00:00",
+    "current_progress": 10
+  },
+  "night_owl": {
+    "unlocked": true,
+    "unlocked_at": "2026-05-21T18:58:06.613449200+00:00",
+    "current_progress": 1
+  }
+}

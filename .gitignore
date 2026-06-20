@@ -72,9 +72,18 @@ game_data.db
 models/
 embedding_models/
 Pytorch/RAG/embedding_models/
+# ===== Emotion model: commit only config files, exclude weights =====
+# model.onnx 本身（91 KB，纯图结构）保留；model.onnx.data（390 MB）靠下载脚本
 *.safetensors
-*.onnx
 *.data
+*.onnx
+!data/third_party/emotion_model_19emo/model.onnx
+!data/third_party/emotion_model_19emo/config.json
+!data/third_party/emotion_model_19emo/label_mapping.json
+!data/third_party/emotion_model_19emo/special_tokens_map.json
+!data/third_party/emotion_model_19emo/tokenizer_config.json
+!data/third_party/emotion_model_19emo/vocab.txt
+!data/third_party/emotion_model_19emo/training_args.bin
 # 发布产物
 release/
 

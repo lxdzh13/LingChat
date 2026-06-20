@@ -158,6 +158,48 @@
 
 ---
 
+## 📱 Android 移植版构建
+
+本项目已移植到 Android 10+（通过 Tauri 2），完整保留桌面端核心功能（聊天 / 角色 / 剧本 / 翻译 / TTS / 情感分类），不依赖任何后端服务器，LLM / TTS / 翻译统一走 HTTP API。
+
+### 🚀 快速构建
+
+```bash
+# 环境要求：JDK 21（不要用 25，会报错）、Android SDK 34、NDK 26.1.x、rustup target aarch64-linux-android
+pnpm install
+pnpm model:download          # 下载情感模型权重 model.onnx.data（~390 MB）
+pnpm tauri android init      # 首次必须，生成 src-tauri/gen/android/
+pnpm android:build:apk       # 构建 Debug 版 APK
+# 或发布版：
+pnpm android:build:aab
+```
+
+### 📦 安装到设备
+
+```bash
+# 签名（用自己生成的 keystore，仓库里不包含）
+apksigner sign --ks my-release.keystore --ks-pass pass:你的密码 --out ling-chat-signed.apk app-arm64-release-unsigned.apk
+apksigner verify --verbose ling-chat-signed.apk
+
+# 安装
+adb install -r ling-chat-signed.apk
+```
+
+### ⚠️ 已知限制
+
+- **桌宠模式（PetMode）**：UI 入口保留但功能未实现（按设计文档要求）
+- **屏幕感知（截图/视觉）**：UI 入口保留但功能未实现
+- **本地 LLM**：不实现，全部走 HTTP（DeepSeek / 通义千问等 OpenAI 兼容 API）
+
+### 📖 详细文档
+
+完整构建流程、签名步骤、目录结构、故障排查见 [`docs/android/BUILD.md`](docs/android/BUILD.md)。
+
+设计文档：[`docs/superpowers/specs/2026-06-17-android-port-design.md`](docs/superpowers/specs/2026-06-17-android-port-design.md)
+
+实施计划：[`docs/superpowers/plans/2026-06-17-lingchat-android-port.md`](docs/superpowers/plans/2026-06-17-lingchat-android-port.md)
+
+
 ## 🔗 致谢与开源灵感
 
 本项目的实现离不开这些优秀开源作品的先驱者，送上由衷的致谢 🌼：
