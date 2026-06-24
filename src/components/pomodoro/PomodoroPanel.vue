@@ -223,7 +223,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import Button from '../base/widget/Button.vue'
 import { useGameStore } from '../../stores/modules/game'
 import { useUIStore } from '@/stores/modules/ui/ui'
-import { scriptHandler } from '../../api/websocket/handlers/script-handler'
+import { invoke } from '@tauri-apps/api/core'
 
 const gameStore = useGameStore()
 const uiStore = useUIStore()
@@ -324,7 +324,10 @@ function sendUserPrompt(text: string) {
     displayName: gameStore.userName,
     content,
   })
-  scriptHandler.sendMessage(content)
+  invoke('send_chat_message', { text: content }).catch((err) => {
+    console.error('番茄钟消息发送失败:', err)
+    gameStore.currentStatus = 'input'
+  })
 }
 
 function flushPendingPrompts() {
