@@ -61,6 +61,7 @@ pub fn new_request_id() -> String {
 
 /// 运行 shell 命令。Windows 用 `cmd /C`，POSIX 用 `sh -c`。
 /// 需要审批时（auto_approve=false）发 PendingApproval 事件并等待用户决定（120s 超时自动拒绝）。
+/// `allow_any_path=false` 时 cwd 必须落在沙箱内（与 FileTools::sanitize 同一校验）。
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_command(
     channel: &tauri::ipc::Channel<SkillAgentEvent>,
@@ -69,6 +70,7 @@ pub async fn execute_command(
     sandbox_dir: &Path,
     command: &str,
     cwd: &str,
+    allow_any_path: bool, // 新增：是否允许沙箱外 cwd
 ) -> anyhow::Result<CommandOutput> {
     tracing::debug!(
         "[skill_agent] execute_command auto_approve={} cmd={}",
@@ -102,10 +104,20 @@ pub async fn execute_command(
         }
     }
 
+    // cwd 必须过沙箱校验（与 FileTools::sanitize 同一逻辑），防 LLM 把命令
+    // 引到沙箱外执行（如 cwd=/ 或 ../../..）
     let cwd_path = if cwd.trim().is_empty() {
         sandbox_dir.to_path_buf()
     } else {
-        std::path::PathBuf::from(cwd.trim())
+        let raw = std::path::PathBuf::from(cwd.trim());
+        if !allow_any_path {
+            let ft = crate::ai_service::skill_agent::file_tools::FileTools {
+                sandbox_dir: sandbox_dir.to_path_buf(),
+                allow_any_path: false,
+            };
+            ft.sanitize(cwd)?;
+        }
+        raw
     };
 
     #[cfg(windows)]
@@ -138,6 +150,8 @@ pub async fn execute_command(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// `cmd /C python script.py "pink dark neon"` 必须原样保留带引号参数。
     /// 没有 raw_arg 时 std 会对整串自动加引号，cmd.exe 的引号规则会剥掉内层引号。
     #[cfg(windows)]
@@ -171,5 +185,33 @@ mod tests {
             stdout,
             String::from_utf8_lossy(&out.stderr)
         );
+    }
+
+    /// cwd 指向沙箱之外时，execute_command 必须拒绝执行（防 LLM 命令逃逸沙箱）。
+    /// cwd 校验在平台分支之前执行，因此该测试在所有平台有效（Windows 上命令
+    /// 用 cmd 执行，但校验逻辑相同）。
+    #[tokio::test]
+    async fn cwd_outside_sandbox_is_rejected() {
+        // 沙箱根
+        let root = std::env::temp_dir().join(format!("lc_ce_test_{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        // 沙箱外的目录（临时目录的父级）
+        let outside = std::env::temp_dir();
+
+        let channel = tauri::ipc::Channel::new(|_| Ok(()));
+        let approvals: ApprovalMap = Arc::new(Mutex::new(HashMap::new()));
+        // cwd 指向沙箱外
+        let result = execute_command(
+            &channel,
+            &approvals,
+            true, // auto_approve，跳过审批
+            &root,
+            "pwd",
+            outside.to_str().unwrap(),
+            false, // allow_any_path = false
+        )
+        .await;
+        assert!(result.is_err(), "cwd 越界应被拒绝");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

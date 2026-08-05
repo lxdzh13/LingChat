@@ -202,6 +202,7 @@ pub async fn execute_tool(
                 &ctx.sandbox_dir,
                 command,
                 cwd,
+                ctx.config.allow_any_path,
             )
             .await
             {
