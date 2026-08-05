@@ -58,3 +58,58 @@
 
 - [ ] 深入 Android 沙箱路径适配（saf_bridge 复用）
 - [ ] 选定方案后写实施计划
+
+## Android 上 `sh -c` 的问题分析（2026-08-05 补充）
+
+代码分支（`command_executor.rs:121-129`）：
+```rust
+tokio::process::Command::new("sh")
+    .arg("-c")
+    .arg(command)
+    .current_dir(cwd_path)
+    .output()
+    .await
+```
+
+### 问题 1：Android 没有完整 POSIX shell 生态（功能层面）
+
+- Android 的 `sh` 是 **mksh（Toybox 版）**，非 bash/dash：
+  - 只支持基本 POSIX 语法（变量、if/for/管道），**不支持 bash 特性**（`[[ ]]`、数组、进程替换 `<()` 等）
+  - skill 的 SKILL.md 若写 bash 语法会直接报错
+- **无外部工具生态**：`python/node/git/curl` 不存在，`ls/cat` 等是 Toybox 精简版（参数子集）
+- skill 里"运行 python 脚本生成内容"类命令**必失败**——`execute_command` 在 Android 上价值有限
+
+### 问题 2：cwd 未过沙箱校验（安全层面，全平台隐患）
+
+```rust
+let cwd_path = if cwd.trim().is_empty() { sandbox_dir } else { PathBuf::from(cwd.trim()) };
+```
+
+- `cwd` 参数**没有经过 `FileTools::sanitize` 校验**——LLM 可让 `cwd=/` 或 `cwd=../../..`，命令在沙箱外执行
+- Windows 上同样存在此漏洞；Android 上危害更大（FUSE 层路径别名可能使 `canonicalize` 校验失效）
+- **修复**：cwd 必须过 `FileTools::sanitize`（全平台受益）
+
+### 问题 3：app 进程 shell 权限受限（Android 特有）
+
+- Tauri app 跑在 app sandbox（uid 隔离）下，`sh -c` 继承 app 权限
+- 无法读其他应用数据（`/data/data/其他应用` 无权限）；部分命令需 root——无 root 手机直接失败
+- 这既是限制也是安全边界
+
+### 问题 4：输出解码回退策略（兼容层面）
+
+```rust
+fn decode_console_output(bytes: &[u8]) -> String {
+    // UTF-8 优先，失败回退 GBK
+}
+```
+
+- Android/Linux 输出是 UTF-8；命令输出非法 UTF-8（cat 二进制）时回退 **GBK** → 乱码
+- **修复**：Windows 回退 GBK，Android/Linux 回退 UTF-8 lossy
+
+### 结论与修复方向
+
+| 问题 | 修复 | 平台 |
+|------|------|------|
+| shell 生态缺失 | Android 禁用/门控 execute_command（返回"平台不支持"或白名单只读命令） | Android |
+| cwd 沙箱逃逸 | cwd 过 `FileTools::sanitize` | 全平台 |
+| 输出解码 | 平台化回退（Windows: GBK；其他: UTF-8 lossy） | 全平台 |
