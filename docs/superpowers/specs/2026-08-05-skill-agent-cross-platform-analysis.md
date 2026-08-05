@@ -113,3 +113,15 @@ fn decode_console_output(bytes: &[u8]) -> String {
 | shell 生态缺失 | Android 禁用/门控 execute_command（返回"平台不支持"或白名单只读命令） | Android |
 | cwd 沙箱逃逸 | cwd 过 `FileTools::sanitize` | 全平台 |
 | 输出解码 | 平台化回退（Windows: GBK；其他: UTF-8 lossy） | 全平台 |
+
+## root 权限依赖排查（2026-08-05 补充）
+
+**结论：项目本身不依赖 root 权限。**
+
+排查结果：
+- **代码进程调用**（全项目仅 1 处）：`utils/system.rs` 的 `open_folder`（explorer/open/xdg-open 打开文件夹）——无需 root，Android 未实现
+- **skill_agent 的 execute_command**：LLM 动态生成命令，无固定 root 需求；`sudo`/`su` 在非交互 `sh -c` 下直接失败（无害），Android app 沙箱下 `su` 需手机已 root + 授权弹窗
+- **内置技能**（lingchat-script-editor / file-operations / my-first-skill）：纯文件操作（write_file/read_file），无任何命令依赖
+- **Tauri 插件**（tauri-plugin-screenshots）：Win32 API / xcap，无进程调用
+
+移植含义：Android 上只需裁剪 execute_command，核心"AI 写剧本"能力（文件操作 + 技能系统）可完整移植；Linux 用 `sh -c` + `xdg-open` 无需提权。
