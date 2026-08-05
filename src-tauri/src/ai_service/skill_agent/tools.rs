@@ -187,27 +187,41 @@ pub async fn execute_tool(
             }
         }
         "execute_command" => {
-            let command = args
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let cwd = args.get("cwd").and_then(|v| v.as_str()).unwrap_or("");
-            if command.is_empty() {
-                return (false, "缺少 command 参数".into());
-            }
-            match command_executor::execute_command(
-                &ctx.channel,
-                &ctx.approvals,
-                ctx.config.auto_approve_commands,
-                &ctx.sandbox_dir,
-                command,
-                cwd,
-                ctx.config.allow_any_path,
-            )
-            .await
+            #[cfg(target_os = "android")]
             {
-                Ok(out) => (out.exit_code == 0, out.to_prompt_string()),
-                Err(e) => (false, e.to_string()),
+                // Android 的 sh 是 Toybox（mksh），无完整 POSIX 工具生态
+                // （无 python/node/git 等），execute_command 无实际价值且是安全面，
+                // 直接禁用。
+                let _ = (ctx, args);
+                (
+                    false,
+                    "当前平台（Android）不支持执行 shell 命令：系统 shell 缺少完整工具生态。请改用文件工具完成任务。".into(),
+                )
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let command = args
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let cwd = args.get("cwd").and_then(|v| v.as_str()).unwrap_or("");
+                if command.is_empty() {
+                    return (false, "缺少 command 参数".into());
+                }
+                match command_executor::execute_command(
+                    &ctx.channel,
+                    &ctx.approvals,
+                    ctx.config.auto_approve_commands,
+                    &ctx.sandbox_dir,
+                    command,
+                    cwd,
+                    ctx.config.allow_any_path,
+                )
+                .await
+                {
+                    Ok(out) => (out.exit_code == 0, out.to_prompt_string()),
+                    Err(e) => (false, e.to_string()),
+                }
             }
         }
         other => (false, format!("未知工具: {}", other)),
