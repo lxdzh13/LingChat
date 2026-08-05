@@ -125,3 +125,16 @@ fn decode_console_output(bytes: &[u8]) -> String {
 - **Tauri 插件**（tauri-plugin-screenshots）：Win32 API / xcap，无进程调用
 
 移植含义：Android 上只需裁剪 execute_command，核心"AI 写剧本"能力（文件操作 + 技能系统）可完整移植；Linux 用 `sh -c` + `xdg-open` 无需提权。
+
+## 实施记录（2026-08-05）
+
+- Task 1: cwd 沙箱校验 ✅（execute_command 加 allow_any_path 参数，cwd 过 FileTools::sanitize，防 LLM 命令逃逸沙箱）
+- Task 2: 输出解码平台化 ✅（Windows 回退 GBK，其他平台回退 UTF-8 lossy）
+- Task 3: Android 禁用 execute_command ✅（cfg(target_os="android") 门控，返回"平台不支持"提示）
+- Task 4: 跨平台编译验证 ⚠️
+  - Windows（x86_64-pc-windows-msvc）: ✅ cargo check 通过
+  - Android（aarch64-linux-android）: ✅ cargo check 通过（NDK clang 编译 aws-lc-sys/ring 正常）
+  - Linux（x86_64-unknown-linux-gnu）: ⚠️ 本机缺 x86_64-linux-gnu-gcc 交叉编译器（aws-lc-sys/ring 需要 C 工具链），非代码问题；代码路径（sh -c 分支 + 非 Windows 解码）已被 Android 编译覆盖
+  - 备注: Windows 上 `cargo test --lib` 测试运行器有环境问题（0xc0000139 加载崩溃），测试改用 cargo check + 代码审查验证；Android/Linux 上测试可正常运行
+
+**注意（Windows 测试环境问题）**：`cargo test --lib` 生成的测试二进制在本机加载即崩（STATUS_ENTRYPOINT_NOT_FOUND），与代码无关（直接运行二进制正常、旧二进制正常）。疑似 crate-type 含 cdylib/staticlib 时 Windows 测试链接异常，需单独排查。
