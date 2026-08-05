@@ -25,12 +25,20 @@ pub struct CommandOutput {
     pub exit_code: i32,
 }
 
-/// 子进程输出解码：中文 Windows 上命令输出通常是 GBK/CP936，非 UTF-8 时回退 GBK。
+/// 子进程输出解码：中文 Windows 上命令输出通常是 GBK/CP936，非 UTF-8 时回退 GBK；
+/// 其他平台输出是 UTF-8，回退 lossy 替换（cat 二进制等场景不乱码）。
 fn decode_console_output(bytes: &[u8]) -> String {
     if let Ok(s) = std::str::from_utf8(bytes) {
         return s.to_string();
     }
-    encoding_rs::GBK.decode(bytes).0.into_owned()
+    #[cfg(target_os = "windows")]
+    {
+        encoding_rs::GBK.decode(bytes).0.into_owned()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
 }
 
 impl CommandOutput {
@@ -213,5 +221,21 @@ mod tests {
         .await;
         assert!(result.is_err(), "cwd 越界应被拒绝");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 合法 UTF-8 输出应原样保留（所有平台）。
+    #[test]
+    fn utf8_output_passes_through() {
+        let s = decode_console_output("你好，世界".as_bytes());
+        assert_eq!(s, "你好，世界");
+    }
+
+    /// 非法 UTF-8 字节的测试仅验证不 panic（Windows 回退 GBK，其他平台 lossy），
+    /// 具体解码结果由平台决定，这里只断言返回 String。
+    #[test]
+    fn non_utf8_output_decodes_without_panic() {
+        let bytes = [0xFFu8, 0xFE, 0x41];
+        let s = decode_console_output(&bytes);
+        assert!(!s.is_empty());
     }
 }
