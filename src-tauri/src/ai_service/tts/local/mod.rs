@@ -234,13 +234,16 @@ pub struct InferenceDeviceInfo {
 
 /// 枚举系统 DirectML 设备（GPU 列表，Windows）。DXGI 枚举顺序与 DirectML
 /// device_id 一致（已验证）。返回给前端供用户选择特定 GPU（如游戏占独显时
-/// 用核显跑 TTS）。
+/// 用核显跑 TTS）。按 (vendor_id, device_id) 去重——Intel 混合显卡系统会
+/// 把同一核显枚举多次（合成/渲染两个入口），去重后只保留 id 最小的。
 #[tauri::command]
 pub fn tts_local_list_devices() -> Vec<InferenceDeviceInfo> {
     #[cfg(target_os = "windows")]
     {
+        use std::collections::HashSet;
         use windows::Win32::Graphics::Dxgi::*;
         let mut devices = Vec::new();
+        let mut seen: HashSet<(u32, u32)> = HashSet::new();
         unsafe {
             if let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() {
                 let mut i = 0u32;
@@ -251,8 +254,10 @@ pub fn tts_local_list_devices() -> Vec<InferenceDeviceInfo> {
                                 let name = String::from_utf16_lossy(&desc.Description)
                                     .trim_end_matches('\0')
                                     .to_string();
-                                // 跳过软件渲染器（Basic Render Driver）
-                                if desc.VendorId != 0x1414 {
+                                // 跳过软件渲染器（Basic Render Driver），并去重同一物理 GPU
+                                if desc.VendorId != 0x1414
+                                    && seen.insert((desc.VendorId, desc.DeviceId))
+                                {
                                     devices.push(InferenceDeviceInfo {
                                         id: i as i32,
                                         name,
