@@ -73,3 +73,9 @@ identifier = "tts-local-set-device"
 description = "Hot-switch the local TTS inference device (cpu/gpu/npu; DirectML on Windows)."
 commands.allow = ["tts_local_set_device"]
 commands.deny = []
+
+[[permission]]
+identifier = "tts-local-list-devices"
+description = "Enumerate DirectML inference devices (GPU list) for device selection."
+commands.allow = ["tts_local_list_devices"]
+commands.deny = []

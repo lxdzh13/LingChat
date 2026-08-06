@@ -39,6 +39,7 @@
     "tts-local-synthesize-preview",
     "tts-local-import-style-vectors",
     "tts-local-set-device",
+    "tts-local-list-devices",
     "android-fs:allow-get-name",
     {
       "identifier": "fs:scope",

@@ -66,7 +66,17 @@
                 @change="saveInferenceDevice"
               >
                 <option value="cpu" class="bg-slate-800">{{ t('settings.tts.device.cpu') }}</option>
-                <option v-if="isWindows" value="gpu" class="bg-slate-800">{{ t('settings.tts.device.gpu') }}</option>
+                <template v-if="isWindows">
+                  <option value="gpu" class="bg-slate-800">{{ t('settings.tts.device.gpu') }}</option>
+                  <option
+                    v-for="dev in gpuDevices"
+                    :key="dev.id"
+                    :value="`device:${dev.id}`"
+                    class="bg-slate-800"
+                  >
+                    {{ dev.name }}
+                  </option>
+                </template>
               </select>
             </label>
           </div>
@@ -404,10 +414,12 @@ const downloadError = ref<Record<string, string>>({})
 const downloadingId = ref<string | null>(null)
 const localTtsEnabled = ref(false)
 const savingLocalTts = ref(false)
-// 推理设备（本地 TTS 热切换）：仅 Windows 显示 GPU/NPU 选项
+// 推理设备（本地 TTS 热切换）：仅 Windows 显示 GPU 选项
 const inferenceDevice = ref('cpu')
 const savingDevice = ref(false)
 const isWindows = /win32|windows/i.test(navigator.userAgent)
+// DirectML GPU 列表（device:<id> 选项）
+const gpuDevices = ref<{ id: number; name: string }[]>([])
 let unlistenProgress: (() => void) | null = null
 let unlistenInstallComplete: UnlistenFn | null = null
 let unlistenDownloadComplete: UnlistenFn | null = null
@@ -735,6 +747,16 @@ onMounted(async () => {
 
   await loadLocalTtsSwitch()
   await refreshAll()
+
+  // 加载 DirectML GPU 设备列表（Windows 供用户选择特定显卡）
+  if (isWindows) {
+    try {
+      const devices = await TtsLocal.listDevices()
+      gpuDevices.value = devices.map((d) => ({ id: d.id, name: d.name }))
+    } catch (e) {
+      console.error('枚举推理设备失败:', e)
+    }
+  }
   if (!componentMounted) return
   unlistenProgress = TtsLocal.onDownloadProgress((progress) => {
     progressByAsset.value = {

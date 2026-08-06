@@ -118,9 +118,21 @@ export function setEnabled(enabled: boolean): Promise<LocalTtsSwitchStatus> {
   return invoke<LocalTtsSwitchStatus>('tts_local_set_enabled', { enabled })
 }
 
-/** 热切换本地 TTS 推理设备（"cpu" | "gpu" | "npu"；DirectML 仅 Windows） */
+/** 热切换本地 TTS 推理设备（"cpu" | "gpu" | "npu" | "device:<id>"；DirectML 仅 Windows） */
 export function setDevice(device: string): Promise<void> {
   return invoke<void>('tts_local_set_device', { device })
+}
+
+/** 枚举 DirectML 推理设备（GPU 列表，供用户选择特定显卡） */
+export interface InferenceDeviceInfo {
+  id: number
+  name: string
+  vendorId: number
+  deviceId: number
+}
+
+export function listDevices(): Promise<InferenceDeviceInfo[]> {
+  return invoke<InferenceDeviceInfo[]>('tts_local_list_devices')
 }
 
 export function listInstalled(): Promise<TtsLocalInstallSnapshot> {

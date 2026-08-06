@@ -223,6 +223,59 @@ pub fn parse_inference_device(s: &str) -> Result<sbv2_core::model::InferenceDevi
     }
 }
 
+/// 可用的 DirectML 推理设备（DXGI 枚举，device_id 与 DirectML 对齐）。
+#[derive(Debug, Clone, Serialize)]
+pub struct InferenceDeviceInfo {
+    pub id: i32,
+    pub name: String,
+    pub vendor_id: u32,
+    pub device_id: u32,
+}
+
+/// 枚举系统 DirectML 设备（GPU 列表，Windows）。DXGI 枚举顺序与 DirectML
+/// device_id 一致（已验证）。返回给前端供用户选择特定 GPU（如游戏占独显时
+/// 用核显跑 TTS）。
+#[tauri::command]
+pub fn tts_local_list_devices() -> Vec<InferenceDeviceInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Graphics::Dxgi::*;
+        let mut devices = Vec::new();
+        unsafe {
+            if let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() {
+                let mut i = 0u32;
+                loop {
+                    match factory.EnumAdapters1(i) {
+                        Ok(adapter) => {
+                            if let Ok(desc) = adapter.GetDesc1() {
+                                let name = String::from_utf16_lossy(&desc.Description)
+                                    .trim_end_matches('\0')
+                                    .to_string();
+                                // 跳过软件渲染器（Basic Render Driver）
+                                if desc.VendorId != 0x1414 {
+                                    devices.push(InferenceDeviceInfo {
+                                        id: i as i32,
+                                        name,
+                                        vendor_id: desc.VendorId,
+                                        device_id: desc.DeviceId,
+                                    });
+                                }
+                            }
+                            i += 1;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+        }
+        devices
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
+}
+
 /// 热切换本地 TTS 推理硬件设备。
 /// 流程：保存配置 → 设置引擎 device → unload 全部 session → 若引擎已启用则重新 init。
 /// 下次合成（或重新 init）时用新设备重建 session。
