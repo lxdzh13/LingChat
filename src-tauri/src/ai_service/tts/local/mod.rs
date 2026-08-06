@@ -23,7 +23,7 @@ pub use paths::LocalTtsPaths;
 use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::ipc::Response;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio_util::sync::CancellationToken;
 
 pub struct LocalTtsState {
@@ -142,10 +142,18 @@ pub fn load_configured_enabled(app: &AppHandle) -> bool {
 /// 读取持久化的推理设备配置（`features.local_tts_device`）。
 /// 返回 `None` 表示未配置（用引擎默认 CPU）。
 pub fn read_configured_device(app: &AppHandle) -> Option<sbv2_core::model::InferenceDevice> {
-    let store = config::settings_store(app).ok()?;
-    let raw = store.get(config::keys::LOCAL_TTS_DEVICE)?;
-    let raw = raw.as_str()?.to_string();
-    parse_inference_device(&raw).ok()
+    // 直接读 settings.json 文件（不依赖 store 是否 load——启动早期 store 可能未从磁盘加载）
+    let path = app
+        .path()
+        .app_config_dir()
+        .ok()?
+        .join(crate::config::STORE_FILE);
+    let content = std::fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let raw = json
+        .get(crate::config::keys::LOCAL_TTS_DEVICE)?
+        .as_str()?;
+    parse_inference_device(raw).ok()
 }
 
 // ---------------------------------------------------------------------------

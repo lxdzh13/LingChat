@@ -94,14 +94,26 @@ pub fn spawn_preload(app: &AppHandle, local: &LocalTtsBootstrap) {
         }
 
         // 重新应用持久化的推理设备（bootstrap 阶段 store 可能未就绪，这里确保生效）
-        if let Some(device) = super::read_configured_device(&preload) {
-            let current = engine.device().await;
-            if current != device {
-                tracing::info!(target: "tts_local", "applying persisted device {:?}", device);
-                engine.set_device(device).await;
-                // 设备变化：旧 session 用旧设备，需重建
-                engine.unload_all().await;
+        match super::read_configured_device(&preload) {
+            Some(device) => {
+                let current = engine.device().await;
+                tracing::info!(
+                    target: "tts_local",
+                    "persisted device={:?}, engine current={:?}",
+                    device,
+                    current
+                );
+                if current != device {
+                    tracing::info!(target: "tts_local", "applying persisted device {:?}", device);
+                    engine.set_device(device).await;
+                    // 设备变化：旧 session 用旧设备，需重建
+                    engine.unload_all().await;
+                }
             }
+            None => tracing::warn!(
+                target: "tts_local",
+                "read_configured_device returned None (device config missing?)"
+            ),
         }
 
         if engine.is_ready().await {
