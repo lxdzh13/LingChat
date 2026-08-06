@@ -56,7 +56,8 @@
             </p>
           </div>
           <div class="h-8 w-px bg-white/10"></div>
-          <div class="flex items-center gap-2">
+          <!-- 推理设备选择：仅 Windows 有意义（DirectML GPU/NPU）；Android/Linux 只有 CPU，隐藏 -->
+          <div v-if="isWindows" class="flex items-center gap-2">
             <label class="flex flex-col">
               <span class="text-xs text-white/45">{{ t('settings.tts.device.label') }}</span>
               <select
