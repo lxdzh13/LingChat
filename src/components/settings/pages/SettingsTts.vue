@@ -67,7 +67,6 @@
               >
                 <option value="cpu" class="bg-slate-800">{{ t('settings.tts.device.cpu') }}</option>
                 <option v-if="isWindows" value="gpu" class="bg-slate-800">{{ t('settings.tts.device.gpu') }}</option>
-                <option v-if="isWindows" value="npu" class="bg-slate-800">{{ t('settings.tts.device.npu') }}</option>
               </select>
             </label>
           </div>
