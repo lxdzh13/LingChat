@@ -56,6 +56,22 @@
             </p>
           </div>
           <div class="h-8 w-px bg-white/10"></div>
+          <div class="flex items-center gap-2">
+            <label class="flex flex-col">
+              <span class="text-xs text-white/45">{{ t('settings.tts.device.label') }}</span>
+              <select
+                v-model="inferenceDevice"
+                class="mt-1 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm text-white outline-none transition-colors focus:border-cyan-300/40"
+                :disabled="savingDevice"
+                @change="saveInferenceDevice"
+              >
+                <option value="cpu" class="bg-slate-800">{{ t('settings.tts.device.cpu') }}</option>
+                <option v-if="isWindows" value="gpu" class="bg-slate-800">{{ t('settings.tts.device.gpu') }}</option>
+                <option v-if="isWindows" value="npu" class="bg-slate-800">{{ t('settings.tts.device.npu') }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="h-8 w-px bg-white/10"></div>
           <div>
             <p class="text-xs text-white/45">{{ t('settings.tts.voices.label') }}</p>
             <p class="text-sm font-medium text-white">{{ t('settings.tts.voices.count', { count: snapshot.voices.length }) }}</p>
@@ -389,10 +405,29 @@ const downloadError = ref<Record<string, string>>({})
 const downloadingId = ref<string | null>(null)
 const localTtsEnabled = ref(false)
 const savingLocalTts = ref(false)
+// 推理设备（本地 TTS 热切换）：仅 Windows 显示 GPU/NPU 选项
+const inferenceDevice = ref('cpu')
+const savingDevice = ref(false)
+const isWindows = /win32|windows/i.test(navigator.userAgent)
 let unlistenProgress: (() => void) | null = null
 let unlistenInstallComplete: UnlistenFn | null = null
 let unlistenDownloadComplete: UnlistenFn | null = null
 let componentMounted = false
+
+async function saveInferenceDevice() {
+  savingDevice.value = true
+  try {
+    await TtsLocal.setDevice(inferenceDevice.value)
+    notice.value = { kind: 'success', text: `推理设备已切换: ${inferenceDevice.value}` }
+  } catch (e) {
+    console.error('切换推理设备失败:', e)
+    notice.value = { kind: 'error', text: `切换推理设备失败: ${e}` }
+    // 失败时回滚下拉显示
+    inferenceDevice.value = 'cpu'
+  } finally {
+    savingDevice.value = false
+  }
+}
 
 type FilterIntent = 'deberta' | 'tokenizer' | 'voice' | 'style_vectors'
 

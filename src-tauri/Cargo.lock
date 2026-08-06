@@ -6011,7 +6011,6 @@ dependencies = [
 [[package]]
 name = "sbv2_core"
 version = "0.2.0"
-source = "git+https://gh-proxy.org/github.com/shadow01a/sbv2-api/#2238726d65e60bbd4a9078c41f4bd564e8d3f073"
 dependencies = [
  "anyhow",
  "dirs",

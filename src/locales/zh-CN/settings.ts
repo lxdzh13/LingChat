@@ -858,6 +858,12 @@ export default {
       ready: '已就绪',
       notReady: '未就绪',
     },
+    device: {
+      label: '推理设备',
+      cpu: 'CPU',
+      gpu: 'GPU（DirectML）',
+      npu: 'NPU（DirectML）',
+    },
     deberta: {
       label: 'DeBERTa 与分词器',
       installed: '已安装',

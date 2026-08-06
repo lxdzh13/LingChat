@@ -198,6 +198,75 @@ pub async fn tts_local_set_enabled(
     })
 }
 
+/// 解析推理设备字符串："cpu" | "gpu" | "npu" | "device:<id>"。
+/// DirectML 仅 Windows 有意义；其他平台（Android/Linux）只支持 cpu。
+pub fn parse_inference_device(s: &str) -> Result<sbv2_core::model::InferenceDevice, String> {
+    use sbv2_core::model::InferenceDevice;
+    match s.trim().to_ascii_lowercase().as_str() {
+        "cpu" => Ok(InferenceDevice::Cpu),
+        #[cfg(target_os = "windows")]
+        "gpu" => Ok(InferenceDevice::Gpu),
+        #[cfg(target_os = "windows")]
+        "npu" => Ok(InferenceDevice::Npu),
+        #[cfg(target_os = "windows")]
+        _ if s.starts_with("device:") => {
+            let id: i32 = s["device:".len()..]
+                .trim()
+                .parse()
+                .map_err(|_| format!("无效的设备 id: {}", s))?;
+            Ok(InferenceDevice::Specific(id))
+        }
+        #[cfg(not(target_os = "windows"))]
+        other => Err(format!("当前平台仅支持 cpu，收到: {}", other)),
+        #[cfg(target_os = "windows")]
+        other => Err(format!("无效的推理设备: {}（可选: cpu/gpu/npu/device:<id>）", other)),
+    }
+}
+
+/// 热切换本地 TTS 推理硬件设备。
+/// 流程：保存配置 → 设置引擎 device → unload 全部 session → 若引擎已启用则重新 init。
+/// 下次合成（或重新 init）时用新设备重建 session。
+#[tauri::command]
+pub async fn tts_local_set_device(
+    app: AppHandle,
+    local_state: State<'_, LocalTtsState>,
+    device: String,
+) -> Result<(), String> {
+    let device = parse_inference_device(&device)?;
+
+    // 保存配置
+    let store = config::settings_store(&app).map_err(|e| e.to_string())?;
+    store.set(config::keys::LOCAL_TTS_DEVICE, device_to_string(device));
+    store
+        .save()
+        .map_err(|e| format!("save local TTS device: {e}"))?;
+
+    // 设置引擎 device + 卸载重建（热切换）
+    local_state.engine.set_device(device).await;
+    local_state.engine.unload_all().await;
+
+    // 引擎已启用时重新初始化（用新设备）
+    let enabled = load_configured_enabled(&app);
+    if enabled && local_state.paths.asset_present("deberta") {
+        if let Err(e) = local_state.engine.init(&local_state.paths).await {
+            tracing::error!("切换推理设备后重新初始化引擎失败: {e}");
+        }
+    }
+
+    tracing::info!("本地 TTS 推理设备已切换: {}", device_to_string(device));
+    Ok(())
+}
+
+fn device_to_string(d: sbv2_core::model::InferenceDevice) -> String {
+    use sbv2_core::model::InferenceDevice;
+    match d {
+        InferenceDevice::Cpu => "cpu".into(),
+        InferenceDevice::Gpu => "gpu".into(),
+        InferenceDevice::Npu => "npu".into(),
+        InferenceDevice::Specific(id) => format!("device:{}", id),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands -- engine operations (from the former crate)
 // ---------------------------------------------------------------------------

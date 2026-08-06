@@ -647,6 +647,7 @@ pub fn run() {
             ai_service::tts::local::tts_local_synthesize_preview,
             ai_service::tts::local::tts_local_get_enabled,
             ai_service::tts::local::tts_local_set_enabled,
+            ai_service::tts::local::tts_local_set_device,
             exit_app,
         ])
         .run(tauri::generate_context!())

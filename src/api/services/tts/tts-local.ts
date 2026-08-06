@@ -118,6 +118,11 @@ export function setEnabled(enabled: boolean): Promise<LocalTtsSwitchStatus> {
   return invoke<LocalTtsSwitchStatus>('tts_local_set_enabled', { enabled })
 }
 
+/** 热切换本地 TTS 推理设备（"cpu" | "gpu" | "npu"；DirectML 仅 Windows） */
+export function setDevice(device: string): Promise<void> {
+  return invoke<void>('tts_local_set_device', { device })
+}
+
 export function listInstalled(): Promise<TtsLocalInstallSnapshot> {
   return invoke<TtsLocalInstallSnapshot>('tts_local_list_installed')
 }

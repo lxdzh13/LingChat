@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use sbv2_core::model::InferenceDevice;
 use sbv2_core::tts::{SynthesizeOptions, TTSModelHolder};
 use tokio::sync::Mutex;
 
@@ -17,6 +18,8 @@ pub struct LocalTtsEngine {
     // `take()` the holder (leaving the inner cell as None), and the
     // loser reports `engine not initialized` even though init succeeded.
     serialize: Arc<Mutex<()>>,
+    /// 推理硬件设备（热切换：改配置后 unload + 重新 init 生效）。
+    device: Arc<Mutex<InferenceDevice>>,
 }
 
 impl Default for LocalTtsEngine {
@@ -40,7 +43,18 @@ impl LocalTtsEngine {
         Self {
             holder: Arc::new(Mutex::new(None)),
             serialize: Arc::new(Mutex::new(())),
+            device: Arc::new(Mutex::new(InferenceDevice::Cpu)),
         }
+    }
+
+    /// 设置推理硬件设备。已加载的 session 不迁移——调用 [`Self::unload_all`]
+    /// 后下次 init/load 用新设备重建（热切换）。
+    pub async fn set_device(&self, device: InferenceDevice) {
+        *self.device.lock().await = device;
+    }
+
+    pub async fn device(&self) -> InferenceDevice {
+        *self.device.lock().await
     }
 
     pub async fn is_ready(&self) -> bool {
@@ -62,8 +76,10 @@ impl LocalTtsEngine {
 
         let bert_clone = bert.clone();
         let tok_clone = tok.clone();
+        let device = *self.device.lock().await;
         let holder = tokio::task::spawn_blocking(move || {
             TTSModelHolder::new(bert_clone, tok_clone, Some(4))
+                .map(|h| h.with_device(device))
         })
         .await
         .map_err(|e| format!("join: {e}"))?

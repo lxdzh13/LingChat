@@ -857,6 +857,12 @@ export default {
       ready: '利用可能',
       notReady: '未準備',
     },
+    device: {
+      label: '推論デバイス',
+      cpu: 'CPU',
+      gpu: 'GPU（DirectML）',
+      npu: 'NPU（DirectML）',
+    },
     deberta: {
       label: 'DeBERTa とトークナイザー',
       installed: 'インストール済み',

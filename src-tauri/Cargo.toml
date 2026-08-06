@@ -19,6 +19,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # 移动端（Android/iOS）构建时必须启用：让 webview 从应用内嵌资产加载前端
 # （不走 devUrl）。桌面端不受影响。
 custom-protocol = ["tauri/custom-protocol"]
+# Windows GPU 加速：启用后 sbv2_core 的 ONNX 推理优先用 DirectML（DX12），
+# 无 GPU 时自动回退 CPU。DirectML 仅 Windows 有意义；Android/Linux 上
+# directml feature 编译通过但无 DirectML EP（ort 在非 Windows 平台静默跳过）。
+# 默认启用（无需手动传 feature）；如需纯 CPU 构建可 --no-default-features。
+tts-directml = ["sbv2_core/directml", "ort/directml"]
+default = ["tts-directml"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -99,3 +105,9 @@ windows = { version = "0.62.2", features = ["Win32_UI_WindowsAndMessaging", "Win
 # 详见 patches/esaxx-rs/build.rs 的注释。
 [patch.crates-io]
 esaxx-rs = { path = "patches/esaxx-rs" }
+
+# 本地补丁：sbv2_core 增加推理硬件热切换（InferenceDevice：CPU/GPU/NPU/指定设备）。
+# 上游 model.rs 的 load_model 写死 EP 列表，无法运行时切换设备；
+# 本地副本加 load_model_with_device + TTSModelHolder::with_device。
+[patch."https://gh-proxy.org/github.com/shadow01a/sbv2-api/"]
+sbv2_core = { path = "patches/sbv2_core" }
