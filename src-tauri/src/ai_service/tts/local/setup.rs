@@ -92,6 +92,18 @@ pub fn spawn_preload(app: &AppHandle, local: &LocalTtsBootstrap) {
             tracing::info!(target: "tts_local", "local tts assets missing, skipping preload");
             return;
         }
+
+        // 重新应用持久化的推理设备（bootstrap 阶段 store 可能未就绪，这里确保生效）
+        if let Some(device) = super::read_configured_device(&preload) {
+            let current = engine.device().await;
+            if current != device {
+                tracing::info!(target: "tts_local", "applying persisted device {:?}", device);
+                engine.set_device(device).await;
+                // 设备变化：旧 session 用旧设备，需重建
+                engine.unload_all().await;
+            }
+        }
+
         if engine.is_ready().await {
             return;
         }

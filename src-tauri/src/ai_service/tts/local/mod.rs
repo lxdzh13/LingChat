@@ -303,10 +303,16 @@ pub async fn tts_local_set_device(
 
     // 保存配置
     let store = config::settings_store(&app).map_err(|e| e.to_string())?;
-    store.set(config::keys::LOCAL_TTS_DEVICE, device_to_string(device));
-    store
-        .save()
-        .map_err(|e| format!("save local TTS device: {e}"))?;
+    let device_str = device_to_string(device);
+    store.set(config::keys::LOCAL_TTS_DEVICE, device_str.clone());
+    match store.save() {
+        Ok(()) => tracing::info!(
+            "[tts] device saved: {}={}",
+            config::keys::LOCAL_TTS_DEVICE,
+            device_str
+        ),
+        Err(e) => tracing::error!("[tts] device save failed: {e}"),
+    }
 
     // 设置引擎 device + 卸载重建（热切换）
     local_state.engine.set_device(device).await;
