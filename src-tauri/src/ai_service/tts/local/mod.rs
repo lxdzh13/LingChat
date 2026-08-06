@@ -23,7 +23,7 @@ pub use paths::LocalTtsPaths;
 use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::ipc::Response;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tokio_util::sync::CancellationToken;
 
 pub struct LocalTtsState {
@@ -142,18 +142,7 @@ pub fn load_configured_enabled(app: &AppHandle) -> bool {
 /// 读取持久化的推理设备配置（`features.local_tts_device`）。
 /// 返回 `None` 表示未配置（用引擎默认 CPU）。
 pub fn read_configured_device(app: &AppHandle) -> Option<sbv2_core::model::InferenceDevice> {
-    // 直接读 settings.json 文件（不依赖 store 是否 load——启动早期 store 可能未从磁盘加载）
-    let path = app
-        .path()
-        .app_config_dir()
-        .ok()?
-        .join(crate::config::STORE_FILE);
-    let content = std::fs::read_to_string(path).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let raw = json
-        .get(crate::config::keys::LOCAL_TTS_DEVICE)?
-        .as_str()?;
-    parse_inference_device(raw).ok()
+    crate::utils::device::read_configured_device(app, crate::config::keys::LOCAL_TTS_DEVICE)
 }
 
 // ---------------------------------------------------------------------------
@@ -215,39 +204,13 @@ pub async fn tts_local_set_enabled(
     })
 }
 
-/// 解析推理设备字符串："cpu" | "gpu" | "npu" | "device:<id>"。
-/// DirectML 仅 Windows 有意义；其他平台（Android/Linux）只支持 cpu。
+/// 解析推理设备字符串（委托 [`crate::utils::device::parse_device`]）。
 pub fn parse_inference_device(s: &str) -> Result<sbv2_core::model::InferenceDevice, String> {
-    use sbv2_core::model::InferenceDevice;
-    match s.trim().to_ascii_lowercase().as_str() {
-        "cpu" => Ok(InferenceDevice::Cpu),
-        #[cfg(target_os = "windows")]
-        "gpu" => Ok(InferenceDevice::Gpu),
-        #[cfg(target_os = "windows")]
-        "npu" => Ok(InferenceDevice::Npu),
-        #[cfg(target_os = "windows")]
-        _ if s.starts_with("device:") => {
-            let id: i32 = s["device:".len()..]
-                .trim()
-                .parse()
-                .map_err(|_| format!("无效的设备 id: {}", s))?;
-            Ok(InferenceDevice::Specific(id))
-        }
-        #[cfg(not(target_os = "windows"))]
-        other => Err(format!("当前平台仅支持 cpu，收到: {}", other)),
-        #[cfg(target_os = "windows")]
-        other => Err(format!("无效的推理设备: {}（可选: cpu/gpu/npu/device:<id>）", other)),
-    }
+    crate::utils::device::parse_device(s)
 }
 
-/// 可用的 DirectML 推理设备（DXGI 枚举，device_id 与 DirectML 对齐）。
-#[derive(Debug, Clone, Serialize)]
-pub struct InferenceDeviceInfo {
-    pub id: i32,
-    pub name: String,
-    pub vendor_id: u32,
-    pub device_id: u32,
-}
+/// 可用的 DirectML 推理设备（复用 [`crate::utils::device::DeviceInfo`]）。
+pub type InferenceDeviceInfo = crate::utils::device::DeviceInfo;
 
 /// 获取当前推理设备（持久化配置或引擎实际值）。
 #[tauri::command]
@@ -261,53 +224,10 @@ pub async fn tts_local_get_device(
     Ok(device_to_string(configured))
 }
 
-/// 枚举系统 DirectML 设备（GPU 列表，Windows）。DXGI 枚举顺序与 DirectML
-/// device_id 一致（已验证）。返回给前端供用户选择特定 GPU（如游戏占独显时
-/// 用核显跑 TTS）。按 (vendor_id, device_id) 去重——Intel 混合显卡系统会
-/// 把同一核显枚举多次（合成/渲染两个入口），去重后只保留 id 最小的。
+/// 枚举系统 DirectML 设备（委托 [`crate::utils::device::list_devices`]）。
 #[tauri::command]
 pub fn tts_local_list_devices() -> Vec<InferenceDeviceInfo> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::collections::HashSet;
-        use windows::Win32::Graphics::Dxgi::*;
-        let mut devices = Vec::new();
-        let mut seen: HashSet<(u32, u32)> = HashSet::new();
-        unsafe {
-            if let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() {
-                let mut i = 0u32;
-                loop {
-                    match factory.EnumAdapters1(i) {
-                        Ok(adapter) => {
-                            if let Ok(desc) = adapter.GetDesc1() {
-                                let name = String::from_utf16_lossy(&desc.Description)
-                                    .trim_end_matches('\0')
-                                    .to_string();
-                                // 跳过软件渲染器（Basic Render Driver），并去重同一物理 GPU
-                                if desc.VendorId != 0x1414
-                                    && seen.insert((desc.VendorId, desc.DeviceId))
-                                {
-                                    devices.push(InferenceDeviceInfo {
-                                        id: i as i32,
-                                        name,
-                                        vendor_id: desc.VendorId,
-                                        device_id: desc.DeviceId,
-                                    });
-                                }
-                            }
-                            i += 1;
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
-        }
-        devices
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Vec::new()
-    }
+    crate::utils::device::list_devices()
 }
 
 /// 热切换本地 TTS 推理硬件设备。
@@ -351,13 +271,7 @@ pub async fn tts_local_set_device(
 }
 
 fn device_to_string(d: sbv2_core::model::InferenceDevice) -> String {
-    use sbv2_core::model::InferenceDevice;
-    match d {
-        InferenceDevice::Cpu => "cpu".into(),
-        InferenceDevice::Gpu => "gpu".into(),
-        InferenceDevice::Npu => "npu".into(),
-        InferenceDevice::Specific(id) => format!("device:{}", id),
-    }
+    crate::utils::device::device_to_string(d)
 }
 
 // ---------------------------------------------------------------------------
@@ -751,32 +665,6 @@ mod tests {
         assert!(switch.is_enabled());
         switch.set_enabled(false);
         assert!(!switch.is_enabled());
-    }
-
-    #[test]
-    fn parse_device_cpu() {
-        use sbv2_core::model::InferenceDevice;
-        assert_eq!(parse_inference_device("cpu").unwrap(), InferenceDevice::Cpu);
-        // 大小写不敏感
-        assert_eq!(parse_inference_device("CPU").unwrap(), InferenceDevice::Cpu);
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn parse_device_gpu_npu_specific_on_windows() {
-        use sbv2_core::model::InferenceDevice;
-        assert_eq!(parse_inference_device("gpu").unwrap(), InferenceDevice::Gpu);
-        assert_eq!(parse_inference_device("npu").unwrap(), InferenceDevice::Npu);
-        assert_eq!(
-            parse_inference_device("device:1").unwrap(),
-            InferenceDevice::Specific(1)
-        );
-    }
-
-    #[test]
-    fn parse_device_invalid_returns_err() {
-        assert!(parse_inference_device("tpu").is_err());
-        assert!(parse_inference_device("").is_err());
     }
 
     #[test]
