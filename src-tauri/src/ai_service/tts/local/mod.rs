@@ -754,6 +754,32 @@ mod tests {
     }
 
     #[test]
+    fn parse_device_cpu() {
+        use sbv2_core::model::InferenceDevice;
+        assert_eq!(parse_inference_device("cpu").unwrap(), InferenceDevice::Cpu);
+        // 大小写不敏感
+        assert_eq!(parse_inference_device("CPU").unwrap(), InferenceDevice::Cpu);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn parse_device_gpu_npu_specific_on_windows() {
+        use sbv2_core::model::InferenceDevice;
+        assert_eq!(parse_inference_device("gpu").unwrap(), InferenceDevice::Gpu);
+        assert_eq!(parse_inference_device("npu").unwrap(), InferenceDevice::Npu);
+        assert_eq!(
+            parse_inference_device("device:1").unwrap(),
+            InferenceDevice::Specific(1)
+        );
+    }
+
+    #[test]
+    fn parse_device_invalid_returns_err() {
+        assert!(parse_inference_device("tpu").is_err());
+        assert!(parse_inference_device("").is_err());
+    }
+
+    #[test]
     fn preview_wav_uses_raw_ipc_response() {
         let response = wav_response(vec![0x52, 0x49, 0x46, 0x46]);
         match response.body().unwrap() {
