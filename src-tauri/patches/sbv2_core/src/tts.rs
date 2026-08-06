@@ -60,10 +60,18 @@ impl TTSModelHolder {
         tokenizer_bytes: P,
         max_loaded_models: Option<usize>,
     ) -> Result<Self> {
-        // bert（DeBERTa 文本编码）用默认 CPU 加载——模型小、推理快，
-        // GPU/NPU 加速收益有限；语音模型（vits2/aivmx）按 `with_device` 指定的
-        // 设备加载（大模型，加速收益大）。
-        let bert = model::load_model(bert_model_bytes, true)?;
+        Self::new_with_device(bert_model_bytes, tokenizer_bytes, max_loaded_models, model::InferenceDevice::Cpu)
+    }
+
+    /// 与 [`Self::new`] 相同，但 bert（DeBERTa）与语音模型都按指定设备加载。
+    /// 用于推理设备热切换场景：用户选择 GPU 后，文本编码也走 GPU 加速。
+    pub fn new_with_device<P: AsRef<[u8]>>(
+        bert_model_bytes: P,
+        tokenizer_bytes: P,
+        max_loaded_models: Option<usize>,
+        device: model::InferenceDevice,
+    ) -> Result<Self> {
+        let bert = model::load_model_with_device(bert_model_bytes, true, device)?;
         let jtalk = jtalk::JTalk::new()?;
         let tokenizer = tokenizer::get_tokenizer(tokenizer_bytes)?;
         Ok(TTSModelHolder {
@@ -72,7 +80,7 @@ impl TTSModelHolder {
             jtalk,
             tokenizer,
             max_loaded_models,
-            device: model::InferenceDevice::Cpu,
+            device,
         })
     }
 

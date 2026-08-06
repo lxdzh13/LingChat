@@ -178,7 +178,9 @@ pub fn run() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,ling_chat_lib=info"))
         .add_directive("sqlx=warn".parse().unwrap())
-        .add_directive("genai=error".parse().unwrap());
+        .add_directive("genai=error".parse().unwrap())
+        // 临时调试：显示本地 TTS 设备的持久化/加载日志
+        .add_directive("tts_local=info".parse().unwrap());
 
     // 初始化日志系统
     tracing_subscriber::registry()
@@ -648,6 +650,7 @@ pub fn run() {
             ai_service::tts::local::tts_local_get_enabled,
             ai_service::tts::local::tts_local_set_enabled,
             ai_service::tts::local::tts_local_set_device,
+            ai_service::tts::local::tts_local_get_device,
             ai_service::tts::local::tts_local_list_devices,
             exit_app,
         ])

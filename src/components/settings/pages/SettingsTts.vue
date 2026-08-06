@@ -757,6 +757,14 @@ onMounted(async () => {
       console.error('枚举推理设备失败:', e)
     }
   }
+
+  // 读取当前推理设备（持久化配置），同步下拉框显示
+  try {
+    const current = await TtsLocal.getDevice()
+    if (current) inferenceDevice.value = current
+  } catch (e) {
+    console.error('读取推理设备失败:', e)
+  }
   if (!componentMounted) return
   unlistenProgress = TtsLocal.onDownloadProgress((progress) => {
     progressByAsset.value = {

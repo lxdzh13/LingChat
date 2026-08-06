@@ -123,6 +123,11 @@ export function setDevice(device: string): Promise<void> {
   return invoke<void>('tts_local_set_device', { device })
 }
 
+/** 获取当前推理设备（持久化配置） */
+export function getDevice(): Promise<string> {
+  return invoke<string>('tts_local_get_device')
+}
+
 /** 枚举 DirectML 推理设备（GPU 列表，供用户选择特定显卡） */
 export interface InferenceDeviceInfo {
   id: number

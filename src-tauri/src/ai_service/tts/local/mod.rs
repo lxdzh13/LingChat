@@ -249,6 +249,18 @@ pub struct InferenceDeviceInfo {
     pub device_id: u32,
 }
 
+/// 获取当前推理设备（持久化配置或引擎实际值）。
+#[tauri::command]
+pub async fn tts_local_get_device(
+    app: AppHandle,
+    local_state: State<'_, LocalTtsState>,
+) -> Result<String, String> {
+    let engine_device = local_state.engine.device().await;
+    // 优先返回持久化配置（与引擎一致）；未配置返回引擎当前值
+    let configured = read_configured_device(&app).unwrap_or(engine_device);
+    Ok(device_to_string(configured))
+}
+
 /// 枚举系统 DirectML 设备（GPU 列表，Windows）。DXGI 枚举顺序与 DirectML
 /// device_id 一致（已验证）。返回给前端供用户选择特定 GPU（如游戏占独显时
 /// 用核显跑 TTS）。按 (vendor_id, device_id) 去重——Intel 混合显卡系统会

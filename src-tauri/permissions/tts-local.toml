@@ -79,3 +79,9 @@ identifier = "tts-local-list-devices"
 description = "Enumerate DirectML inference devices (GPU list) for device selection."
 commands.allow = ["tts_local_list_devices"]
 commands.deny = []
+
+[[permission]]
+identifier = "tts-local-get-device"
+description = "Get current local TTS inference device."
+commands.allow = ["tts_local_get_device"]
+commands.deny = []
