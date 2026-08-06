@@ -54,6 +54,13 @@ pub fn bootstrap(app: &App) -> Result<LocalTtsBootstrap, String> {
     // 在此读取一次，以便进程内引擎以用户选择的状态启动。
     let switch = LocalTtsSwitch::new(paths_available && load_configured_enabled(app.handle()));
     app.manage(switch.clone());
+
+    // 读取持久化的推理设备配置，让引擎以用户上次的选择启动（而非默认 CPU）
+    if let Some(device) = super::read_configured_device(app.handle()) {
+        // set_device 是 async 的，但这里在 setup 阶段引擎未并发使用，block_on 一次安全
+        tauri::async_runtime::block_on(state.engine.set_device(device));
+    }
+
     let engine = state.engine.clone();
     let paths = state.paths.clone();
     app.manage(state);

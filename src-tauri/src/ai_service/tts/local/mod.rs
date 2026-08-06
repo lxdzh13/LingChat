@@ -139,6 +139,15 @@ pub fn load_configured_enabled(app: &AppHandle) -> bool {
     read_configured_enabled(app).unwrap_or(false)
 }
 
+/// 读取持久化的推理设备配置（`features.local_tts_device`）。
+/// 返回 `None` 表示未配置（用引擎默认 CPU）。
+pub fn read_configured_device(app: &AppHandle) -> Option<sbv2_core::model::InferenceDevice> {
+    let store = config::settings_store(app).ok()?;
+    let raw = store.get(config::keys::LOCAL_TTS_DEVICE)?;
+    let raw = raw.as_str()?.to_string();
+    parse_inference_device(&raw).ok()
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands -- switch management
 // ---------------------------------------------------------------------------
