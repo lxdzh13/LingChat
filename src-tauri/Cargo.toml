@@ -111,6 +111,11 @@ tauri-plugin-process = "2"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dxgi"] }
 
+# Linux 推理设备枚举：Vulkan 物理设备（与 WebGPU/Dawn 的 adapter 索引对齐）。
+# 仅运行时动态加载 libvulkan（loaded feature），无构建期 Vulkan 开发包依赖。
+[target.'cfg(target_os = "linux")'.dependencies]
+ash = { version = "0.38", default-features = false, features = ["loaded"] }
+
 
 # 本地补丁：esaxx-rs 0.1.10 上游 build.rs 硬编码 .static_crt(true)（/MT 静态 CRT），
 # 与 ort（onnxruntime，/MD 动态 CRT）在同一链接里混用，导致 MSVC 报

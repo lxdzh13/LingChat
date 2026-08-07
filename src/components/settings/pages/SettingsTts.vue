@@ -71,8 +71,8 @@
                 <option v-if="isWindows || isLinux" value="gpu" class="bg-slate-800">
                   {{ isWindows ? t('settings.tts.device.gpu') : t('settings.tts.device.gpuWebgpu') }}
                 </option>
-                <!-- 特定显卡列表仅 Windows（DXGI 枚举，device_id 与 DirectML 对齐）；Linux/WebGPU 无枚举 -->
-                <template v-if="isWindows">
+                <!-- 特定显卡列表：Windows（DXGI）/ Linux（Vulkan）都枚举；其他平台无枚举 -->
+                <template v-if="isWindows || isLinux">
                   <option
                     v-for="dev in gpuDevices"
                     :key="dev.id"
@@ -754,8 +754,8 @@ onMounted(async () => {
   await loadLocalTtsSwitch()
   await refreshAll()
 
-  // 加载 DirectML GPU 设备列表（仅 Windows，DXGI 枚举特定显卡）；Linux/WebGPU 无枚举
-  if (isWindows) {
+  // 加载 GPU 设备列表（Windows 用 DXGI，Linux 用 Vulkan 枚举特定显卡）
+  if (isWindows || isLinux) {
     try {
       const devices = await TtsLocal.listDevices()
       gpuDevices.value = devices.map((d) => ({ id: d.id, name: d.name }))

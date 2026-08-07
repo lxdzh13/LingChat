@@ -17,7 +17,8 @@ use tauri::{AppHandle, Manager};
 
 /// 解析推理设备字符串："cpu" | "gpu" | "npu" | "device:<id>"。
 /// - `gpu`：DirectML（Windows）或 WebGPU（Linux/macOS，Dawn 默认设备）都支持；
-/// - `npu` / `device:<id>`：仅 DirectML（Windows，DXGI 枚举）；
+/// - `npu`：仅 DirectML（Windows，DXGI 枚举）；
+/// - `device:<id>`：DirectML（Windows，DXGI 索引）或 WebGPU（Linux，Vulkan 物理设备索引）；
 /// - 无 GPU 后端（Android / macOS-CoreML）只支持 cpu。
 pub fn parse_device(s: &str) -> Result<InferenceDevice, String> {
     match s.trim().to_ascii_lowercase().as_str() {
@@ -26,7 +27,7 @@ pub fn parse_device(s: &str) -> Result<InferenceDevice, String> {
         "gpu" => Ok(InferenceDevice::Gpu),
         #[cfg(feature = "tts-directml")]
         "npu" => Ok(InferenceDevice::Npu),
-        #[cfg(feature = "tts-directml")]
+        #[cfg(any(feature = "tts-directml", feature = "tts-webgpu"))]
         _ if s.starts_with("device:") => {
             let id: i32 = s["device:".len()..]
                 .trim()
@@ -34,16 +35,10 @@ pub fn parse_device(s: &str) -> Result<InferenceDevice, String> {
                 .map_err(|_| format!("无效的设备 id: {}", s))?;
             Ok(InferenceDevice::Specific(id))
         }
-        #[cfg(any(feature = "tts-directml", feature = "tts-webgpu"))]
-        other => Err(format!(
-            "无效的推理设备: {}（可选: cpu/gpu{}）",
-            other,
-            if cfg!(feature = "tts-directml") {
-                "/npu/device:<id>"
-            } else {
-                ""
-            }
-        )),
+        #[cfg(feature = "tts-directml")]
+        other => Err(format!("无效的推理设备: {}（可选: cpu/gpu/npu/device:<id>）", other)),
+        #[cfg(all(feature = "tts-webgpu", not(feature = "tts-directml")))]
+        other => Err(format!("无效的推理设备: {}（可选: cpu/gpu/device:<id>）", other)),
         #[cfg(not(any(feature = "tts-directml", feature = "tts-webgpu")))]
         other => Err(format!("当前平台仅支持 cpu，收到: {}", other)),
     }
@@ -68,12 +63,13 @@ pub struct DeviceInfo {
     pub device_id: u32,
 }
 
-/// 枚举系统 DirectML 设备（GPU 列表，Windows）。DXGI 枚举顺序与 DirectML
-/// device_id 一致（已验证）。返回给调用方供用户选择特定 GPU。
+/// 枚举推理设备（GPU 列表，供用户选择特定显卡）：
+/// - Windows：DirectML（DXGI 枚举，device_id 与 DirectML 对齐，已验证）。
+/// - Linux：WebGPU（Vulkan 物理设备，索引与 Dawn adapter 对齐）。
+/// - 其他平台：空列表。
 ///
-/// 按 `(vendor_id, device_id)` 去重——Intel 混合显卡系统会把同一核显枚举
+/// Windows 按 `(vendor_id, device_id)` 去重——Intel 混合显卡系统会把同一核显枚举
 /// 多次（合成/渲染两个入口），去重后只保留 id 最小的。
-/// 非 Windows 平台返回空列表。
 pub fn list_devices() -> Vec<DeviceInfo> {
     #[cfg(target_os = "windows")]
     {
@@ -109,10 +105,64 @@ pub fn list_devices() -> Vec<DeviceInfo> {
         }
         devices
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        list_vulkan_devices()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         Vec::new()
     }
+}
+
+/// 枚举 Vulkan 物理设备（Linux/WebGPU）。
+///
+/// 设备索引与 WebGPU EP 的 `deviceId` 对齐：Dawn 的 Vulkan 后端按
+/// `vkEnumeratePhysicalDevices` 的顺序枚举 adapter，与这里一致。
+/// 运行时通过 `libvulkan.so.1` 动态加载（ash loaded feature），无 Vulkan
+/// 时返回空列表。
+#[cfg(target_os = "linux")]
+fn list_vulkan_devices() -> Vec<DeviceInfo> {
+    use ash::vk;
+
+    let entry = match unsafe { ash::Entry::load() } {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("[device] 无法加载 libvulkan，跳过 GPU 枚举: {e}");
+            return Vec::new();
+        }
+    };
+
+    let app_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_0);
+    let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
+    let instance = match unsafe { entry.create_instance(&create_info, None) } {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::warn!("[device] 创建 Vulkan 实例失败，跳过 GPU 枚举: {e}");
+            return Vec::new();
+        }
+    };
+
+    let devices = unsafe { instance.enumerate_physical_devices() }.unwrap_or_default();
+    let mut out = Vec::new();
+    for (i, pd) in devices.iter().enumerate() {
+        let props = unsafe { instance.get_physical_device_properties(*pd) };
+        let name = props
+            .device_name
+            .iter()
+            .take_while(|&&c| c != 0)
+            .map(|&c| c as u8 as char)
+            .collect::<String>();
+        out.push(DeviceInfo {
+            id: i as i32,
+            name,
+            vendor_id: props.vendor_id,
+            device_id: props.device_id,
+        });
+    }
+
+    unsafe { instance.destroy_instance(None) };
+    out
 }
 
 /// 从 settings.json 直接读取持久化的推理设备配置。
