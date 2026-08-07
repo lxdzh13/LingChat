@@ -884,6 +884,7 @@ export default {
       label: '推理设备',
       cpu: 'CPU',
       gpu: 'GPU（DirectML）',
+      gpuWebgpu: 'GPU（WebGPU）',
       npu: 'NPU（DirectML）',
     },
     deberta: {

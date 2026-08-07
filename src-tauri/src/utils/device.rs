@@ -16,15 +16,17 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 /// 解析推理设备字符串："cpu" | "gpu" | "npu" | "device:<id>"。
-/// DirectML（GPU/NPU）仅 Windows 有意义；其他平台（Android/Linux）只支持 cpu。
+/// - `gpu`：DirectML（Windows）或 WebGPU（Linux/macOS，Dawn 默认设备）都支持；
+/// - `npu` / `device:<id>`：仅 DirectML（Windows，DXGI 枚举）；
+/// - 无 GPU 后端（Android / macOS-CoreML）只支持 cpu。
 pub fn parse_device(s: &str) -> Result<InferenceDevice, String> {
     match s.trim().to_ascii_lowercase().as_str() {
         "cpu" => Ok(InferenceDevice::Cpu),
-        #[cfg(target_os = "windows")]
+        #[cfg(any(feature = "tts-directml", feature = "tts-webgpu"))]
         "gpu" => Ok(InferenceDevice::Gpu),
-        #[cfg(target_os = "windows")]
+        #[cfg(feature = "tts-directml")]
         "npu" => Ok(InferenceDevice::Npu),
-        #[cfg(target_os = "windows")]
+        #[cfg(feature = "tts-directml")]
         _ if s.starts_with("device:") => {
             let id: i32 = s["device:".len()..]
                 .trim()
@@ -32,10 +34,18 @@ pub fn parse_device(s: &str) -> Result<InferenceDevice, String> {
                 .map_err(|_| format!("无效的设备 id: {}", s))?;
             Ok(InferenceDevice::Specific(id))
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(any(feature = "tts-directml", feature = "tts-webgpu"))]
+        other => Err(format!(
+            "无效的推理设备: {}（可选: cpu/gpu{}）",
+            other,
+            if cfg!(feature = "tts-directml") {
+                "/npu/device:<id>"
+            } else {
+                ""
+            }
+        )),
+        #[cfg(not(any(feature = "tts-directml", feature = "tts-webgpu")))]
         other => Err(format!("当前平台仅支持 cpu，收到: {}", other)),
-        #[cfg(target_os = "windows")]
-        other => Err(format!("无效的推理设备: {}（可选: cpu/gpu/npu/device:<id>）", other)),
     }
 }
 

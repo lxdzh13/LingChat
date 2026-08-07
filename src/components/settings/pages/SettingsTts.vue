@@ -56,8 +56,8 @@
             </p>
           </div>
           <div class="h-8 w-px bg-white/10"></div>
-          <!-- 推理设备选择：仅 Windows 有意义（DirectML GPU/NPU）；Android/Linux 只有 CPU，隐藏 -->
-          <div v-if="isWindows" class="flex items-center gap-2">
+          <!-- 推理设备选择：DirectML（Windows）/ WebGPU（Linux）支持 GPU；Android/macOS 只有 CPU，隐藏 -->
+          <div v-if="isWindows || isLinux" class="flex items-center gap-2">
             <label class="flex flex-col">
               <span class="text-xs text-white/45">{{ t('settings.tts.device.label') }}</span>
               <select
@@ -67,8 +67,12 @@
                 @change="saveInferenceDevice"
               >
                 <option value="cpu" class="bg-slate-800">{{ t('settings.tts.device.cpu') }}</option>
+                <!-- GPU：DirectML（Windows）/ WebGPU（Linux，Dawn 默认设备）都可选 -->
+                <option v-if="isWindows || isLinux" value="gpu" class="bg-slate-800">
+                  {{ isWindows ? t('settings.tts.device.gpu') : t('settings.tts.device.gpuWebgpu') }}
+                </option>
+                <!-- 特定显卡列表仅 Windows（DXGI 枚举，device_id 与 DirectML 对齐）；Linux/WebGPU 无枚举 -->
                 <template v-if="isWindows">
-                  <option value="gpu" class="bg-slate-800">{{ t('settings.tts.device.gpu') }}</option>
                   <option
                     v-for="dev in gpuDevices"
                     :key="dev.id"
@@ -419,6 +423,7 @@ const savingLocalTts = ref(false)
 const inferenceDevice = ref('cpu')
 const savingDevice = ref(false)
 const isWindows = /win32|windows/i.test(navigator.userAgent)
+const isLinux = /linux/i.test(navigator.userAgent)
 // DirectML GPU 列表（device:<id> 选项）
 const gpuDevices = ref<{ id: number; name: string }[]>([])
 let unlistenProgress: (() => void) | null = null
@@ -749,7 +754,7 @@ onMounted(async () => {
   await loadLocalTtsSwitch()
   await refreshAll()
 
-  // 加载 DirectML GPU 设备列表（Windows 供用户选择特定显卡）
+  // 加载 DirectML GPU 设备列表（仅 Windows，DXGI 枚举特定显卡）；Linux/WebGPU 无枚举
   if (isWindows) {
     try {
       const devices = await TtsLocal.listDevices()

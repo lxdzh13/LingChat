@@ -885,6 +885,7 @@ export default {
       label: 'Inference device',
       cpu: 'CPU',
       gpu: 'GPU (DirectML)',
+      gpuWebgpu: 'GPU (WebGPU)',
       npu: 'NPU (DirectML)',
     },
     deberta: {

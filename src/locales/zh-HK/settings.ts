@@ -883,6 +883,7 @@ export default {
       "label": "推理裝置",
       "cpu": "CPU",
       "gpu": "GPU（DirectML）",
+      "gpuWebgpu": "GPU（WebGPU）",
       "npu": "NPU（DirectML）"
     },
     "deberta": {
