@@ -19,11 +19,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # 移动端（Android/iOS）构建时必须启用：让 webview 从应用内嵌资产加载前端
 # （不走 devUrl）。桌面端不受影响。
 custom-protocol = ["tauri/custom-protocol"]
-# Windows GPU 加速：启用后 sbv2_core 的 ONNX 推理优先用 DirectML（DX12），
-# 无 GPU 时自动回退 CPU。DirectML 仅 Windows 有意义；Android/Linux 上
-# directml feature 编译通过但无 DirectML EP（ort 在非 Windows 平台静默跳过）。
-# 默认启用（无需手动传 feature）；如需纯 CPU 构建可 --no-default-features。
+
+# ── GPU 推理加速（各平台选一个启用）────────────────────────────
+# Windows：DirectML（DX12，任意 GPU），默认启用
 tts-directml = ["sbv2_core/directml", "ort/directml"]
+# Linux/macOS：WebGPU（Linux 走 Vulkan，macOS 走 Metal，跨厂商）。
+# 构建：--no-default-features --features tts-webgpu
+tts-webgpu = ["sbv2_core/webgpu", "ort/webgpu"]
+# macOS 专用：CoreML（Apple 原生神经引擎/GPU）。构建：--features tts-coreml
+tts-coreml = ["sbv2_core/coreml", "ort/coreml"]
+
+# Windows 默认 DirectML；Linux/macOS 构建时用 --no-default-features --features tts-webgpu
 default = ["tts-directml"]
 
 [build-dependencies]

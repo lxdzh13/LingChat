@@ -82,6 +82,26 @@ pub fn load_model_with_device<P: AsRef<[u8]>>(
     {
         exp.push(ort::ep::CoreML::default().build());
     }
+    #[cfg(feature = "webgpu")]
+    {
+        // WebGPU EP：跨平台（Linux 走 Vulkan，macOS 走 Metal）。
+        // 与 DirectML 一样按用户选择的设备：Gpu 用默认设备，Specific 指定 id。
+        use ort::ep::webgpu::DawnBackendType;
+        match device {
+            InferenceDevice::Gpu | InferenceDevice::Npu => exp.push(
+                ort::ep::WebGPU::default()
+                    .with_dawn_backend_type(DawnBackendType::Vulkan)
+                    .build(),
+            ),
+            InferenceDevice::Specific(id) => exp.push(
+                ort::ep::WebGPU::default()
+                    .with_dawn_backend_type(DawnBackendType::Vulkan)
+                    .with_device_id(id)
+                    .build(),
+            ),
+            InferenceDevice::Cpu => {}
+        }
+    }
     exp.push(ort::ep::CPU::default().build());
     #[cfg(feature = "directml")]
     {
