@@ -3619,8 +3619,6 @@ dependencies = [
 [[package]]
 name = "jpreprocess-naist-jdic"
 version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "298e61acfc4a4af326ad3d64f50046381567bf19e9e6cba3c5f0bd0ca1cdc135"
 dependencies = [
  "bincode",
  "flate2",
