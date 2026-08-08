@@ -10,6 +10,7 @@ pub mod game;
 pub mod locale;
 pub mod music;
 pub mod pet;
+#[cfg(not(target_os = "android"))]
 pub mod plugins;
 pub mod save;
 pub mod scene;

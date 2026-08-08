@@ -8,6 +8,8 @@ mod init;
 mod lan_sync;
 mod manifest;
 mod migration;
+// 插件系统（RustPython）：Android 不启用（rustpython-vm 依赖系统 libffi，NDK 没有）。
+#[cfg(not(target_os = "android"))]
 mod plugins;
 mod resource_sync;
 pub mod utils;
@@ -77,6 +79,7 @@ pub struct InnerAppState {
     /// 主动系统实例（可选）。
     pub tool_registry: Arc<ToolRegistry>,
     /// 插件管理器（扫描/启停/配置）。
+    #[cfg(not(target_os = "android"))]
     pub plugin_manager: Arc<plugins::PluginManager>,
     pub proactive_system:
         Option<Arc<tokio::sync::Mutex<ai_service::proactive_system::ProactiveSystem>>>,
@@ -307,19 +310,24 @@ pub fn run() {
             let tool_registry = Arc::new(ai_service::tools::built_in_registry(role_names)?);
 
             // 插件系统：确保 data/plugins 目录存在并扫描加载插件（工具注册进 registry）
-            let data_dir = api::data_dir();
-            let plugins_root = data_dir.join("plugins");
-            if std::fs::create_dir_all(&plugins_root).is_err() {
-                tracing::warn!("插件目录创建失败: {}", plugins_root.display());
-            }
-            let plugin_manager = Arc::new(plugins::PluginManager::new(
-                data_dir.clone(),
-                tool_registry.clone(),
-            ));
-            // 插件注册可能更新了 available_tools，落盘到权限配置
-            if let Err(e) = tool_registry.save_permissions(&data_dir) {
-                tracing::warn!("插件注册后保存权限配置失败: {e}");
-            }
+            // Android 不启用（rustpython 依赖系统 libffi，NDK 没有）。
+            #[cfg(not(target_os = "android"))]
+            let plugin_manager = {
+                let data_dir = api::data_dir();
+                let plugins_root = data_dir.join("plugins");
+                if std::fs::create_dir_all(&plugins_root).is_err() {
+                    tracing::warn!("插件目录创建失败: {}", plugins_root.display());
+                }
+                let pm = Arc::new(plugins::PluginManager::new(
+                    data_dir.clone(),
+                    tool_registry.clone(),
+                ));
+                // 插件注册可能更新了 available_tools，落盘到权限配置
+                if let Err(e) = tool_registry.save_permissions(&data_dir) {
+                    tracing::warn!("插件注册后保存权限配置失败: {e}");
+                }
+                pm
+            };
 
             // 创建主动系统
             let proactive = std::sync::Arc::new(tokio::sync::Mutex::new(
@@ -390,6 +398,7 @@ pub fn run() {
                     script_channels,
                     generation_lock,
                     tool_registry,
+                    #[cfg(not(target_os = "android"))]
                     plugin_manager,
                     proactive_system: Some(proactive),
                     achievement_manager,
@@ -508,10 +517,15 @@ pub fn run() {
             utils::log_bridge::get_log_history,
             utils::log_bridge::open_log_window,
             utils::log_bridge::is_log_window_open,
+            #[cfg(not(target_os = "android"))]
             api::plugins::plugin_list,
+            #[cfg(not(target_os = "android"))]
             api::plugins::plugin_set_enabled,
+            #[cfg(not(target_os = "android"))]
             api::plugins::plugin_save_config,
+            #[cfg(not(target_os = "android"))]
             api::plugins::plugin_reload,
+            #[cfg(not(target_os = "android"))]
             api::plugins::plugin_delete,
             api::settings::get_settings_tree,
             api::settings::save_settings,
