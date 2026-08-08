@@ -2,6 +2,7 @@
 // ONNX is CPU-bound and `ort::Session` is `!Send + !Sync`; the holder is
 // taken out of the async Mutex, used on the blocking pool, then put back.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use sbv2_core::model::InferenceDevice;
@@ -20,6 +21,10 @@ pub struct LocalTtsEngine {
     serialize: Arc<Mutex<()>>,
     /// 推理硬件设备（热切换：改配置后 unload + 重新 init 生效）。
     device: Arc<Mutex<InferenceDevice>>,
+    /// 引擎卸载次数：每次 `unload_all` 递增。`LocalTtsAdapter` 据此判断自己
+    /// 缓存的就绪/声线加载结果是否已被卸载动作（设备热切换、TTS 关闭）作废，
+    /// 从而在下次合成前重新 bootstrap 加载声线。
+    version: AtomicU64,
 }
 
 impl Default for LocalTtsEngine {
@@ -44,6 +49,7 @@ impl LocalTtsEngine {
             holder: Arc::new(Mutex::new(None)),
             serialize: Arc::new(Mutex::new(())),
             device: Arc::new(Mutex::new(InferenceDevice::Cpu)),
+            version: AtomicU64::new(0),
         }
     }
 
@@ -55,6 +61,12 @@ impl LocalTtsEngine {
 
     pub async fn device(&self) -> InferenceDevice {
         *self.device.lock().await
+    }
+
+    /// 当前引擎卸载版本。每次 `unload_all` 递增；适配器据此判断
+    /// 自己缓存的就绪状态是否已被外部卸载动作作废。
+    pub fn version(&self) -> u64 {
+        self.version.load(Ordering::Acquire)
     }
 
     pub async fn is_ready(&self) -> bool {
@@ -188,6 +200,8 @@ impl LocalTtsEngine {
         let _serialize_guard = self.serialize.lock().await;
         let mut guard = self.holder.lock().await;
         *guard = None;
+        // 通知依赖引擎状态的适配器：缓存的就绪/声线加载结果已失效。
+        self.version.fetch_add(1, Ordering::AcqRel);
     }
 }
 
