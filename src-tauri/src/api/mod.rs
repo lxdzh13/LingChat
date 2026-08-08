@@ -10,7 +10,8 @@ pub mod game;
 pub mod locale;
 pub mod music;
 pub mod pet;
-#[cfg(not(target_os = "android"))]
+// 插件命令由 RustPython 驱动，移动端（Android/iOS）不编译
+#[cfg(desktop)]
 pub mod plugins;
 pub mod save;
 pub mod scene;
@@ -19,6 +20,7 @@ pub mod screenshot;
 pub mod script;
 pub mod script_editor;
 pub mod settings;
+pub mod tool_settings;
 pub mod workshop;
 
 use std::path::PathBuf;
