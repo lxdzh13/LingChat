@@ -204,12 +204,7 @@ pub async fn tts_local_set_enabled(
     })
 }
 
-/// 解析推理设备字符串（委托 [`crate::utils::device::parse_device`]）。
-pub fn parse_inference_device(s: &str) -> Result<sbv2_core::model::InferenceDevice, String> {
-    crate::utils::device::parse_device(s)
-}
-
-/// 可用的 DirectML 推理设备（复用 [`crate::utils::device::DeviceInfo`]）。
+/// 可用的推理设备（Windows DXGI / Linux Vulkan 枚举，复用 [`crate::utils::device::DeviceInfo`]）。
 pub type InferenceDeviceInfo = crate::utils::device::DeviceInfo;
 
 /// 获取当前推理设备（持久化配置或引擎实际值）。
@@ -221,7 +216,7 @@ pub async fn tts_local_get_device(
     let engine_device = local_state.engine.device().await;
     // 优先返回持久化配置（与引擎一致）；未配置返回引擎当前值
     let configured = read_configured_device(&app).unwrap_or(engine_device);
-    Ok(device_to_string(configured))
+    Ok(crate::utils::device::device_to_string(configured))
 }
 
 /// 枚举系统 DirectML 设备（委托 [`crate::utils::device::list_devices`]）。
@@ -239,19 +234,20 @@ pub async fn tts_local_set_device(
     local_state: State<'_, LocalTtsState>,
     device: String,
 ) -> Result<(), String> {
-    let device = parse_inference_device(&device)?;
+    let device = crate::utils::device::parse_device(&device)?;
+    let device_str = crate::utils::device::device_to_string(device);
 
-    // 保存配置
+    // 保存配置；失败时回滚（与 set_enabled 行为一致）
     let store = config::settings_store(&app).map_err(|e| e.to_string())?;
-    let device_str = device_to_string(device);
+    let previous = store.get(config::keys::LOCAL_TTS_DEVICE);
     store.set(config::keys::LOCAL_TTS_DEVICE, device_str.clone());
-    match store.save() {
-        Ok(()) => tracing::info!(
-            "[tts] device saved: {}={}",
-            config::keys::LOCAL_TTS_DEVICE,
-            device_str
-        ),
-        Err(e) => tracing::error!("[tts] device save failed: {e}"),
+    if let Err(error) = store.save() {
+        if let Some(value) = previous {
+            store.set(config::keys::LOCAL_TTS_DEVICE, value);
+        } else {
+            store.delete(config::keys::LOCAL_TTS_DEVICE);
+        }
+        return Err(format!("保存推理设备失败: {error}"));
     }
 
     // 设置引擎 device + 卸载重建（热切换）
@@ -266,12 +262,8 @@ pub async fn tts_local_set_device(
         }
     }
 
-    tracing::info!("本地 TTS 推理设备已切换: {}", device_to_string(device));
+    tracing::info!("本地 TTS 推理设备已切换: {device_str}");
     Ok(())
-}
-
-fn device_to_string(d: sbv2_core::model::InferenceDevice) -> String {
-    crate::utils::device::device_to_string(d)
 }
 
 // ---------------------------------------------------------------------------

@@ -436,7 +436,12 @@ async function saveInferenceDevice() {
   savingDevice.value = true
   try {
     await TtsLocal.setDevice(inferenceDevice.value)
-    notice.value = { kind: 'success', text: `推理设备已切换: ${inferenceDevice.value}` }
+    // 提示用型号名而非 device:<id>
+    const dev = gpuDevices.value.find((d) => `device:${d.id}` === inferenceDevice.value)
+    notice.value = {
+      kind: 'success',
+      text: `推理设备已切换: ${dev ? dev.name : inferenceDevice.value}`,
+    }
   } catch (e) {
     console.error('切换推理设备失败:', e)
     notice.value = { kind: 'error', text: `切换推理设备失败: ${e}` }

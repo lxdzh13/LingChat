@@ -84,13 +84,6 @@ impl TTSModelHolder {
         })
     }
 
-    /// 设置推理硬件设备（默认 CPU）。设置后**后续**加载的模型使用该设备；
-    /// 已加载的 session 不迁移（调用方需 unload 后重建生效）。
-    pub fn with_device(mut self, device: model::InferenceDevice) -> Self {
-        self.device = device;
-        self
-    }
-
     /// Return a list of model names
     pub fn models(&self) -> Vec<String> {
         self.models.iter().map(|m| m.ident.to_string()).collect()

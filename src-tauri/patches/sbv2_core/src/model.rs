@@ -82,13 +82,13 @@ pub fn load_model_with_device<P: AsRef<[u8]>>(
     {
         exp.push(ort::ep::CoreML::default().build());
     }
-    #[cfg(feature = "webgpu")]
+    #[cfg(all(feature = "webgpu", target_os = "linux"))]
     {
-        // WebGPU EP：跨平台（Linux 走 Vulkan，macOS 走 Metal）。
+        // WebGPU EP：仅 Linux（Dawn→Vulkan）。macOS/Android 不做硬件适配，走 CPU。
         // 与 DirectML 一样按用户选择的设备：Gpu 用默认设备，Specific 指定 id。
         use ort::ep::webgpu::DawnBackendType;
         match device {
-            InferenceDevice::Gpu | InferenceDevice::Npu => exp.push(
+            InferenceDevice::Gpu => exp.push(
                 ort::ep::WebGPU::default()
                     .with_dawn_backend_type(DawnBackendType::Vulkan)
                     .build(),
@@ -99,13 +99,13 @@ pub fn load_model_with_device<P: AsRef<[u8]>>(
                     .with_device_id(id)
                     .build(),
             ),
-            InferenceDevice::Cpu => {}
+            InferenceDevice::Cpu | InferenceDevice::Npu => {}
         }
     }
     exp.push(ort::ep::CPU::default().build());
-    #[cfg(feature = "directml")]
+    #[cfg(any(feature = "directml", feature = "webgpu"))]
     {
-        // 诊断：打印选中的推理设备
+        // 诊断：打印选中的推理设备。WebGPU（Linux）下用于验证 deviceId 是否生效。
         eprintln!(
             "[sbv2_core] load_model_with_device device={:?} bert={} EP数量={}",
             device,

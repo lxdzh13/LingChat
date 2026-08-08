@@ -3,8 +3,9 @@
 //! 三个能力：
 //! 1. [`InferenceDevice`] 解析/序列化——`parse_device` / `device_to_string`，
 //!    在配置字符串（"cpu" / "gpu" / "npu" / "device:<id>"）和枚举间转换。
-//! 2. [`list_devices`]——Windows 上 DXGI 枚举 GPU 列表，供用户选择特定显卡
-//!    （如游戏占独显时用核显跑推理）。DXGI 枚举顺序与 DirectML device_id 一致。
+//! 2. [`list_devices`]——按平台枚举 GPU 列表，供用户选择特定显卡：
+//!    Windows 走 DXGI（索引与 DirectML device_id 对齐），Linux 走 Vulkan
+//!    （索引与 WebGPU/Dawn adapter 对齐）。
 //! 3. [`read_configured_device`]——从 settings.json 直接读持久化的设备配置，
 //!    不依赖 Tauri store 的加载时机（启动早期 store 可能未从磁盘加载）。
 //!
@@ -16,18 +17,17 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 /// 解析推理设备字符串："cpu" | "gpu" | "npu" | "device:<id>"。
-/// - `gpu`：DirectML（Windows）或 WebGPU（Linux/macOS，Dawn 默认设备）都支持；
-/// - `npu`：仅 DirectML（Windows，DXGI 枚举）；
-/// - `device:<id>`：DirectML（Windows，DXGI 索引）或 WebGPU（Linux，Vulkan 物理设备索引）；
-/// - 无 GPU 后端（Android / macOS-CoreML）只支持 cpu。
+/// - `gpu` / `device:<id>`：DirectML（Windows）或 WebGPU（Linux，Dawn 默认设备）
+///   支持；macOS/Android 不做硬件适配，只支持 cpu；
+/// - `npu`：仅 DirectML（Windows，DXGI 枚举）。
 pub fn parse_device(s: &str) -> Result<InferenceDevice, String> {
     match s.trim().to_ascii_lowercase().as_str() {
         "cpu" => Ok(InferenceDevice::Cpu),
-        #[cfg(any(feature = "tts-directml", feature = "tts-webgpu"))]
+        #[cfg(any(feature = "tts-directml", all(feature = "tts-webgpu", target_os = "linux")))]
         "gpu" => Ok(InferenceDevice::Gpu),
         #[cfg(feature = "tts-directml")]
         "npu" => Ok(InferenceDevice::Npu),
-        #[cfg(any(feature = "tts-directml", feature = "tts-webgpu"))]
+        #[cfg(any(feature = "tts-directml", all(feature = "tts-webgpu", target_os = "linux")))]
         _ if s.starts_with("device:") => {
             let id: i32 = s["device:".len()..]
                 .trim()
@@ -37,9 +37,12 @@ pub fn parse_device(s: &str) -> Result<InferenceDevice, String> {
         }
         #[cfg(feature = "tts-directml")]
         other => Err(format!("无效的推理设备: {}（可选: cpu/gpu/npu/device:<id>）", other)),
-        #[cfg(all(feature = "tts-webgpu", not(feature = "tts-directml")))]
+        #[cfg(all(feature = "tts-webgpu", target_os = "linux", not(feature = "tts-directml")))]
         other => Err(format!("无效的推理设备: {}（可选: cpu/gpu/device:<id>）", other)),
-        #[cfg(not(any(feature = "tts-directml", feature = "tts-webgpu")))]
+        #[cfg(not(any(
+            feature = "tts-directml",
+            all(feature = "tts-webgpu", target_os = "linux")
+        )))]
         other => Err(format!("当前平台仅支持 cpu，收到: {}", other)),
     }
 }
@@ -54,7 +57,7 @@ pub fn device_to_string(d: InferenceDevice) -> String {
     }
 }
 
-/// 可用的 DirectML 推理设备（DXGI 枚举，device_id 与 DirectML 对齐）。
+/// 可用的推理设备（Windows 由 DXGI 枚举，Linux 由 Vulkan 枚举）。
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceInfo {
     pub id: i32,
@@ -185,15 +188,6 @@ fn settings_json_path(app: &AppHandle) -> Option<std::path::PathBuf> {
         .app_config_dir()
         .ok()
         .map(|d| d.join(crate::config::STORE_FILE))
-}
-
-/// 从磁盘 settings.json 读取字符串配置的辅助函数（供其他模块复用，
-/// 避免各自重复"读文件 → 解析 JSON → 取 key"）。
-pub fn read_settings_string(app: &AppHandle, key: &str) -> Option<String> {
-    let path = settings_json_path(app)?;
-    let content = std::fs::read_to_string(path).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
-    json.get(key)?.as_str().map(str::to_string)
 }
 
 // ---------------------------------------------------------------------------
