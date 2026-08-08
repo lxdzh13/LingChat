@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "android:prepare": "tauri android init && node scripts/generate-android-icons.mjs",
-    "android:dev": "tauri android dev",
-    "android:build": "node scripts/prepare-bundled-resources.mjs 9 && tauri android build --target aarch64"
+    "android:dev": "tauri android dev -- --no-default-features",
+    "android:build": "node scripts/prepare-bundled-resources.mjs 9 && tauri android build --target aarch64 -- --no-default-features"
   },
   "dependencies": {
     "7zip-min": "^3.0.1",

@@ -423,7 +423,8 @@ const savingLocalTts = ref(false)
 const inferenceDevice = ref('cpu')
 const savingDevice = ref(false)
 const isWindows = /win32|windows/i.test(navigator.userAgent)
-const isLinux = /linux/i.test(navigator.userAgent)
+// 安卓 WebView 的 UA 也含 "Linux"，需排除（安卓无 GPU 推理后端）
+const isLinux = /linux/i.test(navigator.userAgent) && !/android/i.test(navigator.userAgent)
 // DirectML GPU 列表（device:<id> 选项）
 const gpuDevices = ref<{ id: number; name: string }[]>([])
 let unlistenProgress: (() => void) | null = null
