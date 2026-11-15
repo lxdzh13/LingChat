@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 use crate::AppState;
 use crate::ai_service::asr::provider::Hotword;
 use crate::api::asr::HotwordInput;
-use crate::db::entities::{global_hotword, role_hotword};
+use crate::db::entities::hotword;
 use crate::db::managers::hotword_repo::HotwordRepo;
 
 /// 热词的对外表示；比 provider 侧的 `Hotword` 多一个 `role_id`（DB 概念）。
@@ -33,13 +33,9 @@ impl RoleHotword {
         }
     }
 
-    fn from_model(row: role_hotword::Model) -> Self {
-        Self::from_parts(row.text, row.weight, row.role_id)
-    }
-
-    /// 全局热词共用同一对外结构，`role_id` 恒为 0（占位：不入库、不上行）。
-    fn from_global(row: global_hotword::Model) -> Self {
-        Self::from_parts(row.text, row.weight, 0)
+    /// 全局热词也走这里，其 `role_id` 为空，对外以 0 占位（不入库、不上行）。
+    fn from_model(row: hotword::Model) -> Self {
+        Self::from_parts(row.text, row.weight, row.role_id.unwrap_or(0))
     }
 }
 
@@ -80,9 +76,12 @@ async fn scene_hotwords(
     }
 
     // IN 查询的返回顺序未定义，按 role_ids 重新分组。
-    let mut by_role: HashMap<i32, Vec<role_hotword::Model>> = HashMap::new();
+    let mut by_role: HashMap<i32, Vec<hotword::Model>> = HashMap::new();
     for row in HotwordRepo::list_by_roles(db, &role_ids).await? {
-        by_role.entry(row.role_id).or_default().push(row);
+        by_role
+            .entry(row.role_id.unwrap_or(0))
+            .or_default()
+            .push(row);
     }
 
     let mut out = Vec::new();
@@ -166,10 +165,10 @@ pub async fn save_role_hotwords(
 
 // 全局热词（与场景角色热词取并集参与识别）
 
-/// 全局热词。绝不写进 `role_hotword`——那里的 `role_id = 0` 是 User 的真实数据。
+/// 全局热词。绝不写成 `scope='role'` 的行——那里的 `role_id = 0` 是 User 的真实数据。
 async fn global_hotwords(db: &DatabaseConnection) -> Result<Vec<RoleHotword>, anyhow::Error> {
     let rows = HotwordRepo::list_global(db).await?;
-    Ok(rows.into_iter().map(RoleHotword::from_global).collect())
+    Ok(rows.into_iter().map(RoleHotword::from_model).collect())
 }
 
 async fn save_global(
@@ -272,4 +271,70 @@ pub async fn save_hotword_library(
     save_library(db, categories, words)
         .await
         .map_err(|e| format!("保存热词库失败: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::db::entities::hotword::HotwordScope;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    async fn test_db() -> (tempfile::TempDir, DatabaseConnection) {
+        let dir = tempfile::tempdir().expect("创建临时目录失败");
+        let db = crate::db::init_db(dir.path())
+            .await
+            .expect("初始化数据库失败");
+        (dir, db)
+    }
+
+    /// 词库与全局热词都只是素材 / 附加词，不能混进场景热词。
+    #[tokio::test]
+    async fn scene_hotwords_excludes_library_and_global() {
+        let (_dir, db) = test_db().await;
+        for (scope, role_id, text) in [
+            (HotwordScope::Role, Some(1), "角色词"),
+            (HotwordScope::Global, None, "全局词"),
+            (HotwordScope::Library, None, "词库词"),
+        ] {
+            hotword::ActiveModel {
+                scope: Set(scope),
+                role_id: Set(role_id),
+                category_id: Set(None),
+                text: Set(text.to_string()),
+                weight: Set(4),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .expect("插入热词失败");
+        }
+
+        let rows = scene_hotwords(&db, Some(1), &[]).await.expect("读取失败");
+        assert_eq!(rows.len(), 1, "场景热词只应包含角色词");
+        assert_eq!(rows[0].text, "角色词");
+        assert_eq!(rows[0].role_id, 1);
+    }
+
+    /// 悬空的分类 id（旧设备或手改 payload）按未分类返回，不能让整个词库读取失败。
+    #[tokio::test]
+    async fn dangling_category_id_maps_to_uncategorized() {
+        let (_dir, db) = test_db().await;
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Library),
+            role_id: Set(None),
+            category_id: Set(Some(999)),
+            text: Set("孤儿分类词".to_string()),
+            weight: Set(4),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .expect("插入词库词失败");
+
+        let lib = library(&db).await.expect("读取词库失败");
+        assert_eq!(lib.words.len(), 1);
+        assert_eq!(lib.words[0].category_index, None);
+        assert_eq!(lib.words[0].text, "孤儿分类词");
+    }
 }

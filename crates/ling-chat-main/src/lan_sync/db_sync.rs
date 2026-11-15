@@ -13,10 +13,11 @@ use sea_orm::{
 use serde_json::Value;
 use tracing::{info, warn};
 
+use crate::db::entities::hotword::{self, HotwordScope};
 use crate::db::entities::hotword_weight::normalize_weight;
 use crate::db::entities::{
-    adventure_unlock, global_hotword, hotword_category, library_hotword, line, line_perception,
-    memory_bank, role, role_hotword, running_script, save,
+    adventure_unlock, hotword_category, line, line_perception, memory_bank, role, running_script,
+    save,
 };
 use crate::db::managers::hotword_repo::{MAX_CATEGORIES, MAX_CATEGORY_NAME_CHARS};
 
@@ -29,25 +30,20 @@ const DB_RECORDS_FILE: &str = "db_records.json";
 // ─── 表操作顺序（按外键依赖） ─────────────────────────────────
 
 /// DELETE 顺序：先删子表再删父表，避免 FK 约束冲突。
-/// 热词表单独列出：旧版 payload 不带热词字段时必须整组跳过，不能当空表清空。
-const DELETE_ORDER: [&str; 7] = [
+/// 热词表无外键，位置只为可读性（先词条后分类）。
+const DELETE_ORDER: [&str; 9] = [
     "line_perception",
     "memory_bank",
     "line",
     "running_script",
     "adventure_unlock",
     "save",
+    "hotword",
+    "hotword_category",
     "role",
 ];
 
-const HOTWORD_DELETE_ORDER: [&str; 4] = [
-    "role_hotword",
-    "global_hotword",
-    "library_hotword", // 先词条后分类（应用层关系）
-    "hotword_category",
-];
-
-// INSERT 顺序为父表 → 子表；三张热词表走 import_rows_normalized 归一，分类走 import_categories。
+// INSERT 顺序为父表 → 子表；热词走 import_hotwords 做入口归一与归属校验。
 
 /// 导入宏：将 JSON 数组反序列化为 Entity Model，转为 ActiveModel 逐行 INSERT。
 ///
@@ -76,40 +72,79 @@ fn normalize_hotword_row(text: &mut String, weight: &mut i32) -> Result<(), Stri
     crate::db::managers::hotword_repo::validate_and_trim(text).map_err(|e| e.to_string())
 }
 
-/// 与 `import_rows!` 同形，但每行先过 `normalize` 再 INSERT；闭包返回 `Err` 表示丢弃该行。
+/// 归属校验：scope 与 `role_id` / `category_id` 的组合必须与 DDL 约束一致。
+fn validate_hotword_ownership(row: &hotword::Model) -> Result<(), String> {
+    match row.scope {
+        HotwordScope::Role => {
+            if row.role_id.is_none() {
+                return Err("角色热词缺少 role_id".to_string());
+            }
+            if row.category_id.is_some() {
+                return Err("角色热词不应带 category_id".to_string());
+            }
+        },
+        HotwordScope::Global => {
+            if row.role_id.is_some() || row.category_id.is_some() {
+                return Err("全局热词不应带 role_id / category_id".to_string());
+            }
+        },
+        HotwordScope::Library => {
+            if row.role_id.is_some() {
+                return Err("词库词不应带 role_id".to_string());
+            }
+            if matches!(row.category_id, Some(id) if id <= 0) {
+                return Err("词库词分类 id 非法".to_string());
+            }
+        },
+    }
+    Ok(())
+}
+
+/// 热词单表导入：逐行反序列化、归一、校验归属。
 ///
-/// 三张热词表专用：越界 `weight` 会被 DDL 的 CHECK 拒掉整批镜像，故入口归一并
-/// 只丢弃校验失败的单行。
-async fn import_rows_normalized<E, M, F>(
+/// 单表共享唯一索引，坏行只丢该行并记 warn，不能让一行脏数据拖垮整批镜像。
+/// 已见键先去重，避免 trim 后重复的行撞唯一索引导致事务回滚。
+async fn import_hotwords(
     db: &impl ConnectionTrait,
     rows: &[Value],
-    name: &str,
-    normalize: F,
     imported: &mut u64,
-) -> Result<(), String>
-where
-    E: EntityTrait<Model = M>,
-    M: serde::de::DeserializeOwned + Into<<E as EntityTrait>::ActiveModel>,
-    F: Fn(&mut M) -> Result<(), String>,
-{
-    if rows.is_empty() {
-        return Ok(());
-    }
-    let models: Vec<M> = serde_json::from_value(Value::Array(rows.to_vec()))
-        .map_err(|e| format!("反序列化 {name} 失败: {e}"))?;
-    for mut model in models {
-        if let Err(reason) = normalize(&mut model) {
-            tracing::warn!("[LAN] {name} 有一行未通过校验，已丢弃: {reason}");
+) -> Result<(), String> {
+    let mut seen: HashSet<(HotwordScope, Option<i32>, Option<i32>, String)> = HashSet::new();
+
+    for row in rows {
+        let mut model: hotword::Model = match serde_json::from_value(row.clone()) {
+            Ok(model) => model,
+            Err(e) => {
+                warn!("[LAN] hotword 有一行反序列化失败，已丢弃: {e}");
+                continue;
+            },
+        };
+        if let Err(reason) = normalize_hotword_row(&mut model.text, &mut model.weight) {
+            warn!("[LAN] hotword 有一行未通过校验，已丢弃: {reason}");
             continue;
         }
-        let active: <E as EntityTrait>::ActiveModel = model.into();
-        match E::insert(active).exec(db).await {
+        if let Err(reason) = validate_hotword_ownership(&model) {
+            warn!("[LAN] hotword 有一行归属非法，已丢弃: {reason}");
+            continue;
+        }
+        let key = (
+            model.scope.clone(),
+            model.role_id,
+            model.category_id,
+            model.text.clone(),
+        );
+        if !seen.insert(key) {
+            warn!("[LAN] hotword 有一行与前面的行重复，已丢弃: {}", model.text);
+            continue;
+        }
+
+        let active: hotword::ActiveModel = model.into();
+        match hotword::Entity::insert(active).exec(db).await {
             Ok(_) => *imported += 1,
-            // 源端有重复键时只丢这一行，避免整批镜像回滚
             Err(e) if matches!(e.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                tracing::warn!("[LAN] {name} 有一行与已有记录冲突，已丢弃: {e}");
+                warn!("[LAN] hotword 有一行与已有记录冲突，已丢弃: {e}");
             },
-            Err(e) => return Err(format!("插入 {name} 失败: {e}")),
+            Err(e) => return Err(format!("插入 hotword 失败: {e}")),
         }
     }
     Ok(())
@@ -117,7 +152,7 @@ where
 
 /// 分类单独导入：trim、丢空、超长、重名只丢该行；条数超上限后丢弃剩余。
 ///
-/// 分类名没有 DDL 约束兜底，不能走不过滤的 `import_rows!`。
+/// 分类名有长度 CHECK，坏行只丢该行，不能拖垮整批镜像。
 async fn import_categories(
     db: &impl ConnectionTrait,
     rows: &[Value],
@@ -179,16 +214,9 @@ pub async fn export_all_records(data_dir: &Path) -> Result<DbRecords, String> {
     info!("开始导出数据库记录...");
 
     let roles = export_table::<role::Entity, role::Model>(&db, "role").await?;
-    let role_hotwords =
-        export_table::<role_hotword::Entity, role_hotword::Model>(&db, "role_hotword").await?;
-    let global_hotwords =
-        export_table::<global_hotword::Entity, global_hotword::Model>(&db, "global_hotword")
-            .await?;
+    let hotwords = export_table::<hotword::Entity, hotword::Model>(&db, "hotword").await?;
     let hotword_categories =
         export_table::<hotword_category::Entity, hotword_category::Model>(&db, "hotword_category")
-            .await?;
-    let library_hotwords =
-        export_table::<library_hotword::Entity, library_hotword::Model>(&db, "library_hotword")
             .await?;
     let saves = export_table::<save::Entity, save::Model>(&db, "save").await?;
     let running_scripts =
@@ -204,33 +232,21 @@ pub async fn export_all_records(data_dir: &Path) -> Result<DbRecords, String> {
         export_table::<line_perception::Entity, line_perception::Model>(&db, "line_perception")
             .await?;
 
-    let total: usize = roles.len()
-        + role_hotwords.len()
-        + global_hotwords.len()
-        + hotword_categories.len()
-        + library_hotwords.len()
-        + saves.len()
-        + running_scripts.len()
-        + adventure_unlocks.len()
-        + lines.len()
-        + memory_banks.len()
-        + line_perceptions.len();
-    info!("数据库导出完成: {} 条记录", total);
-
-    Ok(DbRecords {
+    let records = DbRecords {
         device_id,
         roles,
-        role_hotwords: Some(role_hotwords),
-        global_hotwords: Some(global_hotwords),
-        hotword_categories: Some(hotword_categories),
-        library_hotwords: Some(library_hotwords),
+        hotwords,
+        hotword_categories,
         saves,
         running_scripts,
         adventure_unlocks,
         lines,
         memory_banks,
         line_perceptions,
-    })
+    };
+    info!("数据库导出完成: {} 条记录", records.record_count());
+
+    Ok(records)
 }
 
 /// 导出单张表的所有行，序列化为 `Vec<serde_json::Value>`。
@@ -357,12 +373,6 @@ async fn apply_records(db: &DatabaseConnection, records: &DbRecords) -> Result<u
 
     let mut imported: u64 = 0;
 
-    // 旧版 payload 不带热词字段：整组跳过，否则会把本机热词当空表清掉
-    let hotwords_included = records.role_hotwords.is_some()
-        || records.global_hotwords.is_some()
-        || records.hotword_categories.is_some()
-        || records.library_hotwords.is_some();
-
     // 玩家角色是本地身份卡的投影，不参与整表镜像；先建立远端 id → 本地 id 映射，
     // 供存档与台词里的玩家角色引用翻译。
     let local_players = role::Entity::find()
@@ -436,47 +446,11 @@ async fn apply_records(db: &DatabaseConnection, records: &DbRecords) -> Result<u
             info!("已清除 {}: {} 行", table, count);
         }
     }
-    if hotwords_included {
-        for table in HOTWORD_DELETE_ORDER {
-            let count = delete_all(&txn, table).await?;
-            if count > 0 {
-                info!("已清除 {}: {} 行", table, count);
-            }
-        }
-    }
 
     // ─── INSERT 全部行（父表 → 子表顺序） ────────────────
     import_rows!(&txn, &remote_roles, role, imported);
-    import_rows_normalized::<role_hotword::Entity, _, _>(
-        &txn,
-        records.role_hotwords.as_deref().unwrap_or(&[]),
-        "role_hotword",
-        |m| normalize_hotword_row(&mut m.text, &mut m.weight),
-        &mut imported,
-    )
-    .await?;
-    import_rows_normalized::<global_hotword::Entity, _, _>(
-        &txn,
-        records.global_hotwords.as_deref().unwrap_or(&[]),
-        "global_hotword",
-        |m| normalize_hotword_row(&mut m.text, &mut m.weight),
-        &mut imported,
-    )
-    .await?;
-    import_categories(
-        &txn,
-        records.hotword_categories.as_deref().unwrap_or(&[]),
-        &mut imported,
-    )
-    .await?;
-    import_rows_normalized::<library_hotword::Entity, _, _>(
-        &txn,
-        records.library_hotwords.as_deref().unwrap_or(&[]),
-        "library_hotword",
-        |m| normalize_hotword_row(&mut m.text, &mut m.weight),
-        &mut imported,
-    )
-    .await?;
+    import_categories(&txn, &records.hotword_categories, &mut imported).await?;
+    import_hotwords(&txn, &records.hotwords, &mut imported).await?;
     import_rows!(&txn, &saves, save, imported);
     import_rows!(&txn, &records.running_scripts, running_script, imported);
     import_rows!(&txn, &records.adventure_unlocks, adventure_unlock, imported);
@@ -539,5 +513,372 @@ fn truncate_str(s: &str, max: usize) -> &str {
         s
     } else {
         &s[..s.char_indices().nth(max).map(|(i, _)| i).unwrap_or(s.len())]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    /// 直接把 JSON 写入暂存目录，绕过 `DbRecords` 构造以模拟旧端 payload。
+    fn write_staged_payload(data_dir: &Path, payload: &Value) {
+        let staging = staging_dir(data_dir);
+        std::fs::create_dir_all(&staging).expect("创建暂存目录失败");
+        std::fs::write(
+            staging.join(DB_RECORDS_FILE),
+            serde_json::to_string(payload).expect("序列化 payload 失败"),
+        )
+        .expect("写入暂存 payload 失败");
+    }
+
+    /// 畸形 payload 应用失败时不上抛 `Err`，且暂存文件改名为 `.bad`。
+    #[tokio::test]
+    async fn malformed_payload_does_not_fail_startup() {
+        let tmp = tempfile::tempdir().expect("创建临时目录失败");
+        let data_dir = tmp.path();
+
+        let db = crate::db::init_db(data_dir)
+            .await
+            .expect("初始化数据库失败");
+
+        // roles 里 name 类型非法：加载阶段不报错，导入反序列化时失败。
+        let records = DbRecords {
+            device_id: "test-device".to_string(),
+            roles: vec![serde_json::json!({ "id": 7, "name": 123 })],
+            saves: vec![],
+            running_scripts: vec![],
+            adventure_unlocks: vec![],
+            lines: vec![],
+            memory_banks: vec![],
+            line_perceptions: vec![],
+            hotwords: vec![],
+            hotword_categories: vec![],
+        };
+        stage_db_records(data_dir, &records).expect("暂存失败");
+        assert!(
+            load_staged_db_records(data_dir).is_some(),
+            "用例前提：payload 应能通过加载阶段"
+        );
+
+        let result = apply_staged_db_records(&db, data_dir).await;
+        let staging = staging_dir(data_dir);
+
+        assert_eq!(result, Ok(0), "畸形 payload 不应上抛错误");
+        assert!(
+            !staging.join(DB_RECORDS_FILE).exists(),
+            "原暂存文件应已被移走"
+        );
+        assert!(
+            staging.join("db_records.json.bad").exists(),
+            "应生成 .bad 文件"
+        );
+    }
+
+    /// 导出→导入后角色热词必须与源端一致。
+    #[tokio::test]
+    async fn mirror_includes_hotwords() {
+        let src = tempfile::tempdir().expect("创建临时目录失败");
+        let src_db = crate::db::init_db(src.path())
+            .await
+            .expect("初始化源数据库失败");
+
+        role::ActiveModel {
+            id: Set(7),
+            name: Set("甲".to_string()),
+            role_type: Set(role::RoleType::Main),
+            ..Default::default()
+        }
+        .insert(&src_db)
+        .await
+        .expect("插入角色失败");
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Role),
+            role_id: Set(Some(7)),
+            category_id: Set(None),
+            text: Set("张三".to_string()),
+            weight: Set(5),
+            ..Default::default()
+        }
+        .insert(&src_db)
+        .await
+        .expect("插入热词失败");
+
+        let records = export_all_records(src.path()).await.expect("导出失败");
+        assert_eq!(records.hotwords.len(), 1, "导出应包含热词");
+
+        let dst = tempfile::tempdir().expect("创建临时目录失败");
+        let dst_db = crate::db::init_db(dst.path())
+            .await
+            .expect("初始化目标数据库失败");
+        // 目标端预置旧数据，验证镜像会先清空整张 hotword 表
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Global),
+            role_id: Set(None),
+            category_id: Set(None),
+            text: Set("旧词".to_string()),
+            weight: Set(4),
+            ..Default::default()
+        }
+        .insert(&dst_db)
+        .await
+        .expect("预置热词失败");
+
+        stage_db_records(dst.path(), &records).expect("暂存失败");
+
+        let imported = apply_staged_db_records(&dst_db, dst.path())
+            .await
+            .expect("导入失败");
+        assert!(imported >= 2, "至少应导入角色 + 热词，实际 {imported}");
+
+        let hotwords = hotword::Entity::find()
+            .all(&dst_db)
+            .await
+            .expect("查询热词失败");
+        assert_eq!(hotwords.len(), 1, "镜像应先清空旧热词，再导入源端热词");
+        assert_eq!(hotwords[0].scope, HotwordScope::Role);
+        assert_eq!(hotwords[0].role_id, Some(7));
+        assert_eq!((hotwords[0].text.as_str(), hotwords[0].weight), ("张三", 5));
+    }
+
+    /// 导出→导入后全局热词必须与源端一致。
+    #[tokio::test]
+    async fn mirror_includes_global_hotwords() {
+        let src = tempfile::tempdir().expect("创建临时目录失败");
+        let src_db = crate::db::init_db(src.path())
+            .await
+            .expect("初始化源数据库失败");
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Global),
+            role_id: Set(None),
+            category_id: Set(None),
+            text: Set("全局词".to_string()),
+            weight: Set(5),
+            ..Default::default()
+        }
+        .insert(&src_db)
+        .await
+        .expect("插入全局热词失败");
+
+        let records = export_all_records(src.path()).await.expect("导出失败");
+        assert_eq!(records.hotwords.len(), 1, "导出应包含全局热词");
+
+        let dst = tempfile::tempdir().expect("创建临时目录失败");
+        let dst_db = crate::db::init_db(dst.path())
+            .await
+            .expect("初始化目标数据库失败");
+        // 目标端预置旧数据，验证镜像会先清空该表
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Global),
+            role_id: Set(None),
+            category_id: Set(None),
+            text: Set("旧词".to_string()),
+            weight: Set(4),
+            ..Default::default()
+        }
+        .insert(&dst_db)
+        .await
+        .expect("预置全局热词失败");
+
+        stage_db_records(dst.path(), &records).expect("暂存失败");
+        let imported = apply_staged_db_records(&dst_db, dst.path())
+            .await
+            .expect("导入失败");
+        assert!(imported >= 1, "至少应导入全局热词，实际 {imported}");
+
+        let hotwords = hotword::Entity::find()
+            .all(&dst_db)
+            .await
+            .expect("查询全局热词失败");
+        assert_eq!(hotwords.len(), 1, "镜像应先清空旧全局热词，再导入源端数据");
+        assert_eq!(hotwords[0].scope, HotwordScope::Global);
+        assert_eq!(hotwords[0].role_id, None);
+        assert_eq!(
+            (hotwords[0].text.as_str(), hotwords[0].weight),
+            ("全局词", 5)
+        );
+    }
+
+    /// 导出→导入后词库必须与源端一致（含未分类与分类关系）。
+    #[tokio::test]
+    async fn mirror_includes_hotword_library() {
+        let src = tempfile::tempdir().expect("创建临时目录失败");
+        let src_db = crate::db::init_db(src.path())
+            .await
+            .expect("初始化源数据库失败");
+
+        let cat = hotword_category::ActiveModel {
+            name: Set("人物".to_string()),
+            ..Default::default()
+        }
+        .insert(&src_db)
+        .await
+        .expect("插入分类失败");
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Library),
+            role_id: Set(None),
+            category_id: Set(Some(cat.id)),
+            text: Set("张三".to_string()),
+            weight: Set(5),
+            ..Default::default()
+        }
+        .insert(&src_db)
+        .await
+        .expect("插入词条失败");
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Library),
+            role_id: Set(None),
+            category_id: Set(None),
+            text: Set("通用".to_string()),
+            weight: Set(4),
+            ..Default::default()
+        }
+        .insert(&src_db)
+        .await
+        .expect("插入未分类词条失败");
+
+        let records = export_all_records(src.path()).await.expect("导出失败");
+        assert_eq!(records.hotword_categories.len(), 1, "导出应含分类");
+        assert_eq!(records.hotwords.len(), 2, "导出应含词条");
+
+        let dst = tempfile::tempdir().expect("创建临时目录失败");
+        let dst_db = crate::db::init_db(dst.path())
+            .await
+            .expect("初始化目标数据库失败");
+        // 目标端预置旧数据，验证镜像先清空这两张表
+        hotword_category::ActiveModel {
+            name: Set("旧分类".to_string()),
+            ..Default::default()
+        }
+        .insert(&dst_db)
+        .await
+        .expect("预置分类失败");
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Library),
+            role_id: Set(None),
+            category_id: Set(None),
+            text: Set("旧词".to_string()),
+            weight: Set(4),
+            ..Default::default()
+        }
+        .insert(&dst_db)
+        .await
+        .expect("预置词库词失败");
+
+        stage_db_records(dst.path(), &records).expect("暂存失败");
+        apply_staged_db_records(&dst_db, dst.path())
+            .await
+            .expect("导入失败");
+
+        let cats = hotword_category::Entity::find()
+            .all(&dst_db)
+            .await
+            .expect("查询分类失败");
+        assert_eq!(cats.len(), 1, "镜像应先清空旧分类");
+        assert_eq!(cats[0].name, "人物");
+
+        let words = hotword::Entity::find()
+            .all(&dst_db)
+            .await
+            .expect("查询词条失败");
+        assert_eq!(words.len(), 2, "镜像应先清空旧词库词");
+        let categorized = words
+            .iter()
+            .find(|row| row.text == "张三")
+            .expect("缺少已分类词条");
+        assert_eq!(
+            categorized.category_id,
+            Some(cats[0].id),
+            "分类关系随镜像保持"
+        );
+        let uncategorized = words
+            .iter()
+            .find(|row| row.text == "通用")
+            .expect("缺少未分类词条");
+        assert_eq!(uncategorized.category_id, None, "未分类仍是 NULL");
+    }
+
+    /// 旧端 payload 没有 hotwords 字段时按空表镜像，而不是解析失败。
+    #[tokio::test]
+    async fn missing_hotwords_field_mirrors_empty() {
+        let tmp = tempfile::tempdir().expect("创建临时目录失败");
+        let data_dir = tmp.path();
+        let db = crate::db::init_db(data_dir)
+            .await
+            .expect("初始化数据库失败");
+
+        hotword::ActiveModel {
+            scope: Set(HotwordScope::Global),
+            role_id: Set(None),
+            category_id: Set(None),
+            text: Set("旧词".to_string()),
+            weight: Set(4),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .expect("预置热词失败");
+
+        let payload = serde_json::json!({
+            "deviceId": "test-device",
+            "roles": [],
+            "saves": [],
+            "runningScripts": [],
+            "adventureUnlocks": [],
+            "lines": [],
+            "memoryBanks": [],
+            "linePerceptions": [],
+        });
+        write_staged_payload(data_dir, &payload);
+
+        apply_staged_db_records(&db, data_dir)
+            .await
+            .expect("导入失败");
+
+        let rows = hotword::Entity::find()
+            .all(&db)
+            .await
+            .expect("查询热词失败");
+        assert!(rows.is_empty(), "缺少 hotwords 字段时应镜像为空表");
+    }
+
+    /// 坏行逐行丢弃，不能因为一行问题让整批镜像回滚。
+    #[tokio::test]
+    async fn invalid_rows_are_dropped_individually() {
+        let tmp = tempfile::tempdir().expect("创建临时目录失败");
+        let data_dir = tmp.path();
+        let db = crate::db::init_db(data_dir)
+            .await
+            .expect("初始化数据库失败");
+
+        let payload = serde_json::json!({
+            "deviceId": "test-device",
+            "roles": [],
+            "hotwords": [
+                { "id": 1, "scope": "global", "role_id": 7, "category_id": null, "text": "带归属", "weight": 4 },
+                { "id": 2, "scope": "bogus", "role_id": null, "category_id": null, "text": "坏作用域", "weight": 4 },
+                { "id": 3, "scope": "global", "role_id": null, "category_id": null, "text": "好词", "weight": 7 },
+                { "id": 4, "scope": "global", "role_id": null, "category_id": null, "text": "好词 ", "weight": 4 }
+            ],
+            "saves": [],
+            "runningScripts": [],
+            "adventureUnlocks": [],
+            "lines": [],
+            "memoryBanks": [],
+            "linePerceptions": [],
+        });
+        write_staged_payload(data_dir, &payload);
+
+        apply_staged_db_records(&db, data_dir)
+            .await
+            .expect("导入失败");
+
+        let rows = hotword::Entity::find()
+            .all(&db)
+            .await
+            .expect("查询热词失败");
+        assert_eq!(rows.len(), 1, "只有归一后合法的唯一行应保留");
+        assert_eq!(rows[0].scope, HotwordScope::Global);
+        assert_eq!((rows[0].text.as_str(), rows[0].weight), ("好词", 5));
     }
 }

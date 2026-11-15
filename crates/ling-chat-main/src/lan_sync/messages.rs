@@ -131,25 +131,34 @@ pub struct SyncPlan {
 pub struct DbRecords {
     pub device_id: String,
     pub roles: Vec<serde_json::Value>,
-    /// 角色热词。四张热词表字段用 `Option` 区分「旧版 payload 未携带」与「携带但为空」：
-    /// 前者跳过热词表清空，避免旧客户端镜像抹掉本机热词。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role_hotwords: Option<Vec<serde_json::Value>>,
-    /// 全局热词（不随角色）。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub global_hotwords: Option<Vec<serde_json::Value>>,
+    /// 热词单表（含角色 / 全局 / 词库三种 scope）。
+    /// 旧版 payload 没有该字段时按空数组处理。
+    #[serde(default)]
+    pub hotwords: Vec<serde_json::Value>,
     /// 词库分类。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hotword_categories: Option<Vec<serde_json::Value>>,
-    /// 词库词条。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub library_hotwords: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub hotword_categories: Vec<serde_json::Value>,
     pub saves: Vec<serde_json::Value>,
     pub running_scripts: Vec<serde_json::Value>,
     pub adventure_unlocks: Vec<serde_json::Value>,
     pub lines: Vec<serde_json::Value>,
     pub memory_banks: Vec<serde_json::Value>,
     pub line_perceptions: Vec<serde_json::Value>,
+}
+
+impl DbRecords {
+    /// 全部记录数，供导出 / 推送日志使用。
+    pub fn record_count(&self) -> usize {
+        self.roles.len()
+            + self.hotwords.len()
+            + self.hotword_categories.len()
+            + self.saves.len()
+            + self.running_scripts.len()
+            + self.adventure_unlocks.len()
+            + self.lines.len()
+            + self.memory_banks.len()
+            + self.line_perceptions.len()
+    }
 }
 
 // ─── 进度事件 ────────────────────────────────────────────────

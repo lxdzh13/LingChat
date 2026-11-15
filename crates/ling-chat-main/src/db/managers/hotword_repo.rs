@@ -6,8 +6,9 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set,
 };
 
+use crate::db::entities::hotword::{self, HotwordScope};
+use crate::db::entities::hotword_category;
 use crate::db::entities::hotword_weight::normalize_weight;
-use crate::db::entities::{global_hotword, hotword_category, library_hotword, role_hotword};
 
 /// 每作用域条数上限（角色与全局同一口径）。
 const MAX_ROWS_PER_ROLE: usize = 200;
@@ -125,10 +126,11 @@ impl HotwordRepo {
     pub async fn list_by_role<C: ConnectionTrait>(
         db: &C,
         role_id: i32,
-    ) -> Result<Vec<role_hotword::Model>, anyhow::Error> {
-        role_hotword::Entity::find()
-            .filter(role_hotword::Column::RoleId.eq(role_id))
-            .order_by_asc(role_hotword::Column::Id)
+    ) -> Result<Vec<hotword::Model>, anyhow::Error> {
+        hotword::Entity::find()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Role))
+            .filter(hotword::Column::RoleId.eq(role_id))
+            .order_by_asc(hotword::Column::Id)
             .all(db)
             .await
             .map_err(|e| anyhow!(e))
@@ -138,13 +140,14 @@ impl HotwordRepo {
     pub async fn list_by_roles<C: ConnectionTrait>(
         db: &C,
         role_ids: &[i32],
-    ) -> Result<Vec<role_hotword::Model>, anyhow::Error> {
+    ) -> Result<Vec<hotword::Model>, anyhow::Error> {
         if role_ids.is_empty() {
             return Ok(Vec::new());
         }
-        role_hotword::Entity::find()
-            .filter(role_hotword::Column::RoleId.is_in(role_ids.iter().copied()))
-            .order_by_asc(role_hotword::Column::Id)
+        hotword::Entity::find()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Role))
+            .filter(hotword::Column::RoleId.is_in(role_ids.iter().copied()))
+            .order_by_asc(hotword::Column::Id)
             .all(db)
             .await
             .map_err(|e| anyhow!(e))
@@ -159,14 +162,17 @@ impl HotwordRepo {
         rows: &[(String, i32)],
     ) -> Result<(), anyhow::Error> {
         let merged = validate_and_merge(rows, MAX_ROWS_PER_ROLE)?;
-        role_hotword::Entity::delete_many()
-            .filter(role_hotword::Column::RoleId.eq(role_id))
+        hotword::Entity::delete_many()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Role))
+            .filter(hotword::Column::RoleId.eq(role_id))
             .exec(db)
             .await
             .map_err(|e| anyhow!(e))?;
         for MergedRow { text, weight, .. } in merged {
-            role_hotword::ActiveModel {
-                role_id: Set(role_id),
+            hotword::ActiveModel {
+                scope: Set(HotwordScope::Role),
+                role_id: Set(Some(role_id)),
+                category_id: Set(None),
                 text: Set(text),
                 weight: Set(weight),
                 ..Default::default()
@@ -183,12 +189,16 @@ impl HotwordRepo {
         rows: &[(String, i32)],
     ) -> Result<(), anyhow::Error> {
         let merged = validate_and_merge(rows, MAX_ROWS_PER_ROLE)?;
-        global_hotword::Entity::delete_many()
+        hotword::Entity::delete_many()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Global))
             .exec(db)
             .await
             .map_err(|e| anyhow!(e))?;
         for MergedRow { text, weight, .. } in merged {
-            global_hotword::ActiveModel {
+            hotword::ActiveModel {
+                scope: Set(HotwordScope::Global),
+                role_id: Set(None),
+                category_id: Set(None),
                 text: Set(text),
                 weight: Set(weight),
                 ..Default::default()
@@ -202,25 +212,27 @@ impl HotwordRepo {
 
     pub async fn list_global<C: ConnectionTrait>(
         db: &C,
-    ) -> Result<Vec<global_hotword::Model>, anyhow::Error> {
-        global_hotword::Entity::find()
-            .order_by_asc(global_hotword::Column::Id)
+    ) -> Result<Vec<hotword::Model>, anyhow::Error> {
+        hotword::Entity::find()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Global))
+            .order_by_asc(hotword::Column::Id)
             .all(db)
             .await
             .map_err(|e| anyhow!(e))
     }
 
-    /// 词库两张表，皆按 id 升序 = 插入顺序（整表替换按序插入）。
+    /// 词库的分类与词条，皆按 id 升序 = 插入顺序（整表替换按序插入）。
     pub async fn list_library<C: ConnectionTrait>(
         db: &C,
-    ) -> Result<(Vec<hotword_category::Model>, Vec<library_hotword::Model>), anyhow::Error> {
+    ) -> Result<(Vec<hotword_category::Model>, Vec<hotword::Model>), anyhow::Error> {
         let categories = hotword_category::Entity::find()
             .order_by_asc(hotword_category::Column::Id)
             .all(db)
             .await
             .map_err(|e| anyhow!(e))?;
-        let words = library_hotword::Entity::find()
-            .order_by_asc(library_hotword::Column::Id)
+        let words = hotword::Entity::find()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Library))
+            .order_by_asc(hotword::Column::Id)
             .all(db)
             .await
             .map_err(|e| anyhow!(e))?;
@@ -277,7 +289,8 @@ impl HotwordRepo {
             (words[index].0, text.to_string())
         })?;
 
-        library_hotword::Entity::delete_many()
+        hotword::Entity::delete_many()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Library))
             .exec(db)
             .await
             .map_err(|e| anyhow!(e))?;
@@ -302,7 +315,9 @@ impl HotwordRepo {
         // 归并后按首现下标取回原入参的分类（越界已在上方校验）
         for row in merged {
             let category_id = words[row.first_index].0.map(|index| ids[index]);
-            library_hotword::ActiveModel {
+            hotword::ActiveModel {
+                scope: Set(HotwordScope::Library),
+                role_id: Set(None),
                 category_id: Set(category_id),
                 text: Set(row.text),
                 weight: Set(row.weight),
@@ -313,5 +328,179 @@ impl HotwordRepo {
             .map_err(|e| anyhow!(e))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::db::entities::hotword::{self, HotwordScope};
+    use sea_orm::{ActiveModelTrait, Set};
+
+    async fn test_db() -> (tempfile::TempDir, sea_orm::DatabaseConnection) {
+        let dir = tempfile::tempdir().expect("创建临时目录失败");
+        let db = crate::db::init_db(dir.path())
+            .await
+            .expect("初始化数据库失败");
+        (dir, db)
+    }
+
+    /// 同名热词分属不同分类时必须各存一行，不能被 `text` 归并掉。
+    #[tokio::test]
+    async fn library_keeps_same_text_in_different_categories() {
+        let (_dir, db) = test_db().await;
+        HotwordRepo::replace_library(
+            &db,
+            &["人物".to_string(), "产品".to_string()],
+            &[
+                (Some(0), "钦灵".to_string(), 4),
+                (Some(1), "钦灵".to_string(), 5),
+            ],
+        )
+        .await
+        .expect("保存失败");
+
+        let (categories, words) = HotwordRepo::list_library(&db).await.expect("读取失败");
+        assert_eq!(words.len(), 2, "不同分类的同名词条应各存一行");
+        assert_eq!(words[0].category_id, Some(categories[0].id));
+        assert_eq!(words[1].category_id, Some(categories[1].id));
+    }
+
+    /// 同一分类内的同名词仍按原语义归并取最大权重。
+    #[tokio::test]
+    async fn library_merges_same_text_within_one_category() {
+        let (_dir, db) = test_db().await;
+        HotwordRepo::replace_library(
+            &db,
+            &["人物".to_string()],
+            &[
+                (Some(0), "钦灵".to_string(), 4),
+                (Some(0), "钦灵".to_string(), 5),
+            ],
+        )
+        .await
+        .expect("保存失败");
+
+        let (_, words) = HotwordRepo::list_library(&db).await.expect("读取失败");
+        assert_eq!(words.len(), 1);
+        assert_eq!(words[0].weight, 5);
+    }
+
+    /// 未分类之间同样保持唯一；SQLite 的复合唯一索引对 NULL 不做约束，需单独保证。
+    #[tokio::test]
+    async fn library_merges_same_text_when_uncategorized() {
+        let (_dir, db) = test_db().await;
+        HotwordRepo::replace_library(
+            &db,
+            &[],
+            &[(None, "通用".to_string(), 4), (None, "通用".to_string(), 5)],
+        )
+        .await
+        .expect("保存失败");
+
+        let (_, words) = HotwordRepo::list_library(&db).await.expect("读取失败");
+        assert_eq!(words.len(), 1);
+        assert_eq!(words[0].weight, 5);
+    }
+
+    /// 同名热词分属不同角色时各存一行，互不覆盖。
+    #[tokio::test]
+    async fn role_scopes_are_isolated() {
+        let (_dir, db) = test_db().await;
+        HotwordRepo::replace_for_role(&db, 1, &[("同名".to_string(), 4)])
+            .await
+            .expect("保存失败");
+        HotwordRepo::replace_for_role(&db, 2, &[("同名".to_string(), 5)])
+            .await
+            .expect("保存失败");
+
+        let role_one = HotwordRepo::list_by_role(&db, 1).await.expect("读取失败");
+        let role_two = HotwordRepo::list_by_role(&db, 2).await.expect("读取失败");
+        assert_eq!(role_one.len(), 1);
+        assert_eq!(role_two.len(), 1);
+        assert_eq!(role_one[0].weight, 4);
+        assert_eq!(role_two[0].weight, 5);
+        assert_eq!(role_one[0].scope, HotwordScope::Role);
+    }
+
+    /// 全局词与未分类词库词的空值形态相同，只能靠 scope 区分，必须能共存。
+    #[tokio::test]
+    async fn global_and_uncategorized_library_share_text() {
+        let (_dir, db) = test_db().await;
+        HotwordRepo::replace_global(&db, &[("通用".to_string(), 4)])
+            .await
+            .expect("保存失败");
+        HotwordRepo::replace_library(&db, &[], &[(None, "通用".to_string(), 5)])
+            .await
+            .expect("保存失败");
+
+        let global = HotwordRepo::list_global(&db).await.expect("读取失败");
+        let (_, words) = HotwordRepo::list_library(&db).await.expect("读取失败");
+        assert_eq!(global.len(), 1);
+        assert_eq!(words.len(), 1);
+        assert_eq!(global[0].scope, HotwordScope::Global);
+        assert_eq!(global[0].weight, 4);
+        assert_eq!(words[0].scope, HotwordScope::Library);
+        assert_eq!(words[0].weight, 5);
+    }
+
+    /// 三个读取入口都必须固定各自的 scope，不能读到别的作用域。
+    #[tokio::test]
+    async fn all_reads_fix_their_scope() {
+        let (_dir, db) = test_db().await;
+        HotwordRepo::replace_for_role(&db, 1, &[("角色词".to_string(), 4)])
+            .await
+            .expect("保存失败");
+        HotwordRepo::replace_global(&db, &[("全局词".to_string(), 4)])
+            .await
+            .expect("保存失败");
+        HotwordRepo::replace_library(&db, &[], &[(None, "词库词".to_string(), 4)])
+            .await
+            .expect("保存失败");
+
+        let by_roles = HotwordRepo::list_by_roles(&db, &[1])
+            .await
+            .expect("读取失败");
+        assert_eq!(by_roles.len(), 1);
+        assert_eq!(by_roles[0].text, "角色词");
+        assert_eq!(by_roles[0].scope, HotwordScope::Role);
+
+        let global = HotwordRepo::list_global(&db).await.expect("读取失败");
+        assert_eq!(global.len(), 1);
+        assert_eq!(global[0].text, "全局词");
+        assert_eq!(global[0].scope, HotwordScope::Global);
+
+        let (_, words) = HotwordRepo::list_library(&db).await.expect("读取失败");
+        assert_eq!(words.len(), 1);
+        assert_eq!(words[0].text, "词库词");
+        assert_eq!(words[0].scope, HotwordScope::Library);
+    }
+
+    /// scope 与归属列、权重的非法组合由 DDL 拒绝。
+    #[tokio::test]
+    async fn invalid_scope_assignment_or_weight_is_rejected() {
+        let (_dir, db) = test_db().await;
+
+        let cases = [
+            (HotwordScope::Role, None, None, 4, "角色词缺少 role_id"),
+            (HotwordScope::Global, Some(1), None, 4, "全局词带 role_id"),
+            (HotwordScope::Library, Some(1), None, 4, "词库词带 role_id"),
+            (HotwordScope::Global, None, None, 7, "非法权重"),
+        ];
+        for (index, (scope, role_id, category_id, weight, reason)) in cases.into_iter().enumerate()
+        {
+            let result = hotword::ActiveModel {
+                scope: Set(scope),
+                role_id: Set(role_id),
+                category_id: Set(category_id),
+                text: Set(format!("非法{index}")),
+                weight: Set(weight),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await;
+            assert!(result.is_err(), "{reason} 应被拒绝，实际写入成功");
+        }
     }
 }

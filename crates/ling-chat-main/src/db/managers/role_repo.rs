@@ -11,12 +11,12 @@ use sea_orm::{
 use tracing::warn;
 
 use crate::ai_service::types::CharacterSettings;
+use crate::db::entities::hotword::{self, HotwordScope};
 use crate::db::entities::line;
 use crate::db::entities::line_perception;
 use crate::db::entities::role::{
     self, ActiveModel as RoleActiveModel, Model as RoleModel, RoleType,
 };
-use crate::db::entities::role_hotword;
 use crate::db::entities::role_relation;
 use crate::db::entities::running_script;
 use crate::db::entities::save;
@@ -215,9 +215,10 @@ impl RoleRepo {
         // 5. 清该角色全部 memory_bank
         MemoryRepo::delete_all_memories_by_role_id(db, role_id).await?;
 
-        // 6. 清该角色的热词（表无外键；此处 FK 已关闭，用裸 DELETE）
-        role_hotword::Entity::delete_many()
-            .filter(role_hotword::Column::RoleId.eq(role_id))
+        // 6. 清该角色的角色热词（表无外键；全局 / 词库热词不受影响）
+        hotword::Entity::delete_many()
+            .filter(hotword::Column::Scope.eq(HotwordScope::Role))
+            .filter(hotword::Column::RoleId.eq(role_id))
             .exec(db)
             .await?;
 
@@ -572,4 +573,77 @@ fn now_seconds() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
         .unwrap_or_else(|_| "0".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 热词表没有外键，删角色时不会自动级联；清理必须限定在角色作用域。
+    #[tokio::test]
+    async fn delete_main_role_removes_only_role_hotwords() {
+        let tmp = tempfile::tempdir().expect("创建临时目录失败");
+        let db = crate::db::init_db(tmp.path())
+            .await
+            .expect("初始化数据库失败");
+
+        let role_id =
+            RoleRepo::find_or_create_role(&db, "待删角色", RoleType::Main, None, None, None)
+                .await
+                .expect("建角色失败");
+        let kept_id =
+            RoleRepo::find_or_create_role(&db, "保留角色", RoleType::Main, None, None, None)
+                .await
+                .expect("建角色失败");
+
+        for (scope, rid, text) in [
+            (HotwordScope::Role, Some(role_id), "张三"),
+            (HotwordScope::Role, Some(kept_id), "李四"),
+            (HotwordScope::Global, None, "全局词"),
+            (HotwordScope::Library, None, "词库词"),
+        ] {
+            hotword::ActiveModel {
+                scope: Set(scope),
+                role_id: Set(rid),
+                category_id: Set(None),
+                text: Set(text.to_string()),
+                weight: Set(4),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .expect("插入热词失败");
+        }
+
+        assert!(
+            RoleRepo::delete_main_role(&db, role_id)
+                .await
+                .expect("删除角色失败")
+        );
+
+        let remaining = hotword::Entity::find()
+            .all(&db)
+            .await
+            .expect("查询热词失败");
+        assert_eq!(remaining.len(), 3, "只应删掉待删角色的角色热词");
+        assert!(
+            !remaining
+                .iter()
+                .any(|row| row.scope == HotwordScope::Role && row.role_id == Some(role_id)),
+            "待删角色的热词应已清空"
+        );
+        assert!(remaining.iter().any(|row| {
+            row.scope == HotwordScope::Role && row.role_id == Some(kept_id) && row.text == "李四"
+        }));
+        assert!(
+            remaining
+                .iter()
+                .any(|row| row.scope == HotwordScope::Global && row.text == "全局词")
+        );
+        assert!(
+            remaining
+                .iter()
+                .any(|row| row.scope == HotwordScope::Library && row.text == "词库词")
+        );
+    }
 }
